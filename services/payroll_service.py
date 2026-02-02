@@ -1,32 +1,38 @@
 from datetime import datetime
-from core.models import PayrollRow, PayrollSummary
+from typing import Dict
+
+from core.models import Employee, PayrollRow, PayrollSummary
 
 
 # ==================================================
 # HELPERS
 # ==================================================
-def _weekday_name(date_obj: datetime) -> str:
-    return date_obj.strftime("%A")
+def _weekday_name(date_str: str) -> str:
+    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
+
+
+def _date_ui(date_str: str) -> str:
+    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
 
 
 # ==================================================
-# BUILD ROWS
+# ROW BUILDER
 # ==================================================
 def build_payroll_rows(
-    hours_map: dict[str, float],
+    hours_map: Dict[str, float],
     rate: float,
 ):
     rows: list[PayrollRow] = []
 
-    for date_iso, hours in sorted(hours_map.items()):
-        date_obj = datetime.strptime(date_iso, "%Y-%m-%d")
+    for date in sorted(hours_map.keys()):
+        hours = hours_map[date]
         amount = round(hours * rate, 2)
 
         rows.append(
             PayrollRow(
-                date_iso=date_iso,
-                date_ui=date_obj.strftime("%d.%m.%Y"),
-                weekday=_weekday_name(date_obj),
+                date=date,
+                date_ui=_date_ui(date),
+                weekday=_weekday_name(date),
                 hours=hours,
                 rate=rate,
                 amount=amount,
@@ -37,55 +43,62 @@ def build_payroll_rows(
 
 
 # ==================================================
-# FIXED RATE PAYROLL (8 EUR/H)
-# UI EXPECTS: (employee, hours_map, start, end)
+# FIXED RATE (8 €/h) — ❌ NO DEDUCTIONS
 # ==================================================
 def calculate_fixed_payroll(
-    employee,
-    hours_map: dict[str, float],
-    period_start=None,
-    period_end=None,
+    employee: Employee,
+    hours_map: Dict[str, float],
+    _start=None,
+    _end=None,
+    *,
+    housing: float = 0.0,
+    utilities: float = 0.0,
 ):
     rate = 8.0
-
     rows = build_payroll_rows(hours_map, rate)
 
     total_hours = sum(r.hours for r in rows)
-    gross_amount = round(sum(r.amount for r in rows), 2)
+    gross = round(sum(r.amount for r in rows), 2)
 
     summary = PayrollSummary(
         total_hours=total_hours,
-        gross_amount=gross_amount,
-        total_deductions=0.0,
-        net_amount=gross_amount,
+        gross_amount=gross,
+        housing_deduction=0.0,
+        utilities_deduction=0.0,
+        net_amount=gross,
     )
 
     return rows, summary
 
 
 # ==================================================
-# CUSTOM RATE PAYROLL
-# UI EXPECTS: (employee, hours_map, start, end)
+# CUSTOM RATE (EMPLOYEE) — ✅ DEDUCTIONS APPLY
 # ==================================================
 def calculate_custom_payroll(
-    employee,
-    hours_map: dict[str, float],
-    period_start=None,
-    period_end=None,
+    employee: Employee,
+    hours_map: Dict[str, float],
+    _start=None,
+    _end=None,
+    *,
+    housing: float = 0.0,
+    utilities: float = 0.0,
 ):
     rate = employee.rate
-
     rows = build_payroll_rows(hours_map, rate)
 
     total_hours = sum(r.hours for r in rows)
-    gross_amount = round(sum(r.amount for r in rows), 2)
+    gross = round(sum(r.amount for r in rows), 2)
+
+    housing = round(housing, 2)
+    utilities = round(utilities, 2)
+    net = round(gross - housing - utilities, 2)
 
     summary = PayrollSummary(
         total_hours=total_hours,
-        gross_amount=gross_amount,
-        total_deductions=0.0,
-        net_amount=gross_amount,
+        gross_amount=gross,
+        housing_deduction=housing,
+        utilities_deduction=utilities,
+        net_amount=net,
     )
 
     return rows, summary
-

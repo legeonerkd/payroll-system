@@ -30,7 +30,7 @@ def generate_payroll_pdf(
     # ---------- document date ----------
     document_date = datetime.now().strftime("%d.%m.%Y")
 
-    # ---------- font (unicode) ----------
+    # ---------- font ----------
     font_path = base_dir / "fonts" / "DejaVuSans.ttf"
     pdf.add_font("DejaVu", "", str(font_path), uni=True)
 
@@ -55,7 +55,6 @@ def generate_payroll_pdf(
     if employee.has_bank_account:
         pdf.ln(4)
         pdf.cell(0, 7, "Bank details:", ln=True)
-
         if employee.bank_name:
             pdf.cell(0, 6, f"Bank: {employee.bank_name}", ln=True)
         if employee.iban:
@@ -76,23 +75,20 @@ def generate_payroll_pdf(
     pdf.cell(32, 8, "Amount (€)", 1, align="R", fill=True)
     pdf.ln()
 
-    # ---------- table rows ----------
+    # ---------- rows ----------
     pdf.set_font("DejaVu", size=10)
 
     for r in rows:
-        # Sunday highlighting
         if r.weekday.lower() == "sunday":
-            pdf.set_fill_color(255, 230, 230)  # light red
-            fill = True
+            pdf.set_fill_color(255, 230, 230)
         else:
             pdf.set_fill_color(255, 255, 255)
-            fill = True
 
-        pdf.cell(28, 8, r.date_ui, 1, fill=fill)
-        pdf.cell(38, 8, r.weekday, 1, fill=fill)
-        pdf.cell(22, 8, f"{r.hours:.2f}", 1, align="R", fill=fill)
-        pdf.cell(30, 8, f"{r.rate:.2f}", 1, align="R", fill=fill)
-        pdf.cell(32, 8, f"{r.amount:.2f}", 1, align="R", fill=fill)
+        pdf.cell(28, 8, r.date_ui, 1, fill=True)
+        pdf.cell(38, 8, r.weekday, 1, fill=True)
+        pdf.cell(22, 8, f"{r.hours:.2f}", 1, align="R", fill=True)
+        pdf.cell(30, 8, f"{r.rate:.2f}", 1, align="R", fill=True)
+        pdf.cell(32, 8, f"{r.amount:.2f}", 1, align="R", fill=True)
         pdf.ln()
 
     pdf.ln(6)
@@ -101,6 +97,18 @@ def generate_payroll_pdf(
     pdf.set_font("DejaVu", size=11)
     pdf.cell(0, 7, f"Total hours: {summary.total_hours:.2f}", ln=True)
     pdf.cell(0, 7, f"Gross amount: {summary.gross_amount:.2f} €", ln=True)
+
+    # deductions ONLY for custom payroll
+    if summary.housing_deduction > 0:
+        pdf.cell(0, 7, f"Housing deduction: -{summary.housing_deduction:.2f} €", ln=True)
+
+    if summary.utilities_deduction > 0:
+        pdf.cell(0, 7, f"Utilities deduction: -{summary.utilities_deduction:.2f} €", ln=True)
+
+    if summary.housing_deduction > 0 or summary.utilities_deduction > 0:
+        pdf.ln(2)
+        pdf.set_font("DejaVu", size=12)
+        pdf.cell(0, 8, f"Net amount: {summary.net_amount:.2f} €", ln=True)
 
     # ---------- signatures ----------
     pdf.ln(15)
