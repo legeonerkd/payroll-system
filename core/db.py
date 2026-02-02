@@ -2,62 +2,25 @@ import sqlite3
 from pathlib import Path
 
 
-DB_VERSION = 2
-
-
 class Database:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.cur = self.conn.cursor()
-        self._init_db()
+        self._init_schema()
 
     # ==================================================
-    # INIT / VERSIONING
-    # ==================================================
-    def _init_db(self):
-        self.cur.execute("""
-        CREATE TABLE IF NOT EXISTS meta (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-        """)
-
-        version = self._get_version()
-
-        if version == 0:
-            self._create_schema_v1()
-            self._set_version(1)
-            version = 1
-
-        if version == 1:
-            self._migrate_1_to_2()
-            self._set_version(2)
-
-        self.conn.commit()
-
-    def _get_version(self) -> int:
-        row = self.cur.execute(
-            "SELECT value FROM meta WHERE key='db_version'"
-        ).fetchone()
-        return int(row["value"]) if row else 0
-
-    def _set_version(self, version: int):
-        self.cur.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES ('db_version', ?)",
-            (str(version),)
-        )
-
-    # ==================================================
-    # SCHEMA v1 (SAFE)
-    # ==================================================
-    def _create_schema_v1(self):
+    def _init_schema(self):
         self.cur.execute("""
         CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            rate REAL
+            name TEXT NOT NULL UNIQUE,
+            rate REAL NOT NULL,
+            has_bank_account INTEGER DEFAULT 0,
+            bank_name TEXT,
+            iban TEXT,
+            bic TEXT
         )
         """)
 
@@ -70,33 +33,7 @@ class Database:
         )
         """)
 
-    # ==================================================
-    # MIGRATION v1 → v2 (SAFE)
-    # ==================================================
-    def _column_exists(self, table: str, column: str) -> bool:
-        cols = self.cur.execute(f"PRAGMA table_info({table})").fetchall()
-        return any(c["name"] == column for c in cols)
-
-    def _migrate_1_to_2(self):
-        if not self._column_exists("employees", "has_bank_account"):
-            self.cur.execute(
-                "ALTER TABLE employees ADD COLUMN has_bank_account INTEGER DEFAULT 0"
-            )
-
-        if not self._column_exists("employees", "bank_name"):
-            self.cur.execute(
-                "ALTER TABLE employees ADD COLUMN bank_name TEXT"
-            )
-
-        if not self._column_exists("employees", "iban"):
-            self.cur.execute(
-                "ALTER TABLE employees ADD COLUMN iban TEXT"
-            )
-
-        if not self._column_exists("employees", "bic"):
-            self.cur.execute(
-                "ALTER TABLE employees ADD COLUMN bic TEXT"
-            )
+        self.conn.commit()
 
     # ==================================================
     # EMPLOYEES
@@ -130,12 +67,18 @@ class Database:
     ):
         self.cur.execute("""
         UPDATE employees
-        SET has_bank_account=?,
-            bank_name=?,
-            iban=?,
-            bic=?
-        WHERE id=?
-        """, (int(has_bank), bank, iban, bic, emp_id))
+        SET has_bank_account = ?,
+            bank_name = ?,
+            iban = ?,
+            bic = ?
+        WHERE id = ?
+        """, (
+            int(has_bank),
+            bank,
+            iban,
+            bic,
+            emp_id
+        ))
         self.conn.commit()
 
     # ==================================================
@@ -161,3 +104,4 @@ class Database:
     # ==================================================
     def close(self):
         self.conn.close()
+

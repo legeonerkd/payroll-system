@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import Optional
+from sqlite3 import Row
 
 
-# ======================================================
+# ==================================================
 # EMPLOYEE
-# ======================================================
+# ==================================================
 @dataclass
 class Employee:
     id: int
@@ -12,16 +12,13 @@ class Employee:
     rate: float
 
     has_bank_account: bool = False
-    bank_name: Optional[str] = None
-    iban: Optional[str] = None
-    bic: Optional[str] = None
+    bank_name: str | None = None
+    iban: str | None = None
+    bic: str | None = None
 
-    @classmethod
-    def from_row(cls, row):
-        """
-        Создание Employee из sqlite3.Row
-        """
-        return cls(
+    @staticmethod
+    def from_row(row: Row) -> "Employee":
+        return Employee(
             id=row["id"],
             name=row["name"],
             rate=row["rate"],
@@ -32,38 +29,25 @@ class Employee:
         )
 
 
-# ======================================================
-# PAYROLL ROW (один день)
-# ======================================================
+# ==================================================
+# PAYROLL ROW (one day)
+# ==================================================
 @dataclass
 class PayrollRow:
-    date_iso: str          # YYYY-MM-DD
-    date_ui: str           # DD-MM-YYYY
+    date_iso: str
+    date_ui: str
     weekday: str
     hours: float
-    rate: float
-
-    @property
-    def amount(self) -> float:
-        return round(self.hours * self.rate, 2)
+    amount: float
 
 
-# ======================================================
+# ==================================================
 # PAYROLL SUMMARY
-# ======================================================
+# ==================================================
 @dataclass
 class PayrollSummary:
     total_hours: float
-    rate: float
     gross_amount: float
+    total_deductions: float = 0.0
+    net_amount: float = 0.0
 
-    housing_deduction: float = 0.0
-    utilities_deduction: float = 0.0
-
-    @property
-    def total_deductions(self) -> float:
-        return round(self.housing_deduction + self.utilities_deduction, 2)
-
-    @property
-    def net_amount(self) -> float:
-        return round(self.gross_amount - self.total_deductions, 2)
