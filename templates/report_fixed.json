@@ -1,0 +1,24 @@
+{
+  "header": [
+    { "text": "Payroll Report", "bold": true, "size": 14 },
+    { "text": "Employee: {employee}" },
+    { "text": "Period: {period_start} - {period_end}" }
+  ],
+  "table": {
+    "columns": [
+      { "title": "Date", "key": "date_ui", "width": 30 },
+      { "title": "Day", "key": "weekday", "width": 35 },
+      { "title": "Hours", "key": "hours", "width": 25 },
+      { "title": "Amount (€)", "key": "amount", "width": 30 }
+    ]
+  },
+  "summary": [
+    { "label": "Total hours", "value": "{total_hours}" },
+    { "label": "Rate", "value": "{rate} €" },
+    { "label": "Gross amount", "value": "{gross_amount} €" }
+  ],
+  "signatures": [
+    { "label": "Employee" },
+    { "label": "Employer" }
+  ]
+}
