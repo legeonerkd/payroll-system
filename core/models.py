@@ -30,7 +30,7 @@ class Employee:
 
 
 # ==================================================
-# PAYROLL ROW (one day)
+# PAYROLL ROW (ONE DAY)
 # ==================================================
 @dataclass
 class PayrollRow:
@@ -38,6 +38,7 @@ class PayrollRow:
     date_ui: str
     weekday: str
     hours: float
+    rate: float          # 🔴 ДОБАВЛЕНО
     amount: float
 
 
@@ -50,4 +51,3 @@ class PayrollSummary:
     gross_amount: float
     total_deductions: float = 0.0
     net_amount: float = 0.0
-
