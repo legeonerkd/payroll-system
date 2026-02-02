@@ -3,55 +3,59 @@ from tkinter import ttk
 from pathlib import Path
 
 from core.db import Database
+from core.backup import backup_db
+
 from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
 
 
-# ==================================================
-# PATHS (CRITICAL FIX)
-# ==================================================
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "salary.db"
-TEMPLATES_DIR = BASE_DIR / "templates"
-
-
-# ==================================================
-# APP
-# ==================================================
 class PayrollApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
         self.title("Payroll System")
-        self.geometry("900x650")
+        self.geometry("900x700")
+        self.minsize(900, 700)
 
-        # ---- Database (SINGLE SOURCE OF TRUTH) ----
-        self.db = Database(DB_PATH)
+        # ---------- database ----------
+        self.db = Database("salary.db")
 
+        # ---------- ui ----------
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
 
-        notebook.add(
-            EmployeesTab(notebook, self.db),
-            text="Employees"
-        )
+        base_dir = Path(__file__).resolve().parent
+        templates_dir = base_dir / "templates"
 
-        notebook.add(
-            PayrollTab(notebook, self.db, TEMPLATES_DIR),
-            text="Payroll"
-        )
+        # ---------- payroll tab ----------
+        self.payroll_tab = PayrollTab(notebook, self.db, templates_dir)
+        notebook.add(self.payroll_tab, text="Payroll")
 
+        # ---------- employees tab ----------
+        self.employees_tab = EmployeesTab(
+            notebook,
+            self.db,
+            on_change=self.payroll_tab.refresh_employees,
+        )
+        notebook.add(self.employees_tab, text="Employees")
+
+        # ---------- close handler ----------
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _on_close(self):
-        self.db.close()
+        try:
+            backup_db("salary.db")
+        except Exception:
+            pass
+
+        try:
+            self.db.close()
+        except Exception:
+            pass
+
         self.destroy()
 
 
-# ==================================================
-# ENTRY POINT
-# ==================================================
 if __name__ == "__main__":
     app = PayrollApp()
     app.mainloop()
-
