@@ -27,7 +27,7 @@ def generate_payroll_pdf(
 
     base_dir = Path(__file__).resolve().parents[1]
 
-    # ---------- document date (single source) ----------
+    # ---------- document date ----------
     document_date = datetime.now().strftime("%d.%m.%Y")
 
     # ---------- font (unicode) ----------
@@ -77,14 +77,22 @@ def generate_payroll_pdf(
     pdf.ln()
 
     # ---------- table rows ----------
-    pdf.set_fill_color(255, 255, 255)
+    pdf.set_font("DejaVu", size=10)
 
     for r in rows:
-        pdf.cell(28, 8, r.date_ui, 1)
-        pdf.cell(38, 8, r.weekday, 1)
-        pdf.cell(22, 8, f"{r.hours:.2f}", 1, align="R")
-        pdf.cell(30, 8, f"{r.rate:.2f}", 1, align="R")
-        pdf.cell(32, 8, f"{r.amount:.2f}", 1, align="R")
+        # Sunday highlighting
+        if r.weekday.lower() == "sunday":
+            pdf.set_fill_color(255, 230, 230)  # light red
+            fill = True
+        else:
+            pdf.set_fill_color(255, 255, 255)
+            fill = True
+
+        pdf.cell(28, 8, r.date_ui, 1, fill=fill)
+        pdf.cell(38, 8, r.weekday, 1, fill=fill)
+        pdf.cell(22, 8, f"{r.hours:.2f}", 1, align="R", fill=fill)
+        pdf.cell(30, 8, f"{r.rate:.2f}", 1, align="R", fill=fill)
+        pdf.cell(32, 8, f"{r.amount:.2f}", 1, align="R", fill=fill)
         pdf.ln()
 
     pdf.ln(6)
@@ -120,4 +128,3 @@ def generate_payroll_pdf(
     pdf.output(str(final_path))
 
     return final_path
-
