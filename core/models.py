@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from sqlite3 import Row
 
 
 # ==================================================
@@ -10,15 +9,14 @@ class Employee:
     id: int
     name: str
     rate: float
-
     has_bank_account: bool = False
     bank_name: str | None = None
     iban: str | None = None
     bic: str | None = None
 
-    @staticmethod
-    def from_row(row: Row) -> "Employee":
-        return Employee(
+    @classmethod
+    def from_row(cls, row):
+        return cls(
             id=row["id"],
             name=row["name"],
             rate=row["rate"],
@@ -30,15 +28,15 @@ class Employee:
 
 
 # ==================================================
-# PAYROLL ROW (ONE DAY)
+# PAYROLL ROW
 # ==================================================
 @dataclass
 class PayrollRow:
-    date_iso: str
-    date_ui: str
-    weekday: str
+    date: str            # ISO: YYYY-MM-DD
+    date_ui: str         # UI: DD.MM.YYYY
+    weekday: str         # Monday, Tuesday, ...
     hours: float
-    rate: float          # 🔴 ДОБАВЛЕНО
+    rate: float
     amount: float
 
 
@@ -49,5 +47,6 @@ class PayrollRow:
 class PayrollSummary:
     total_hours: float
     gross_amount: float
-    total_deductions: float = 0.0
+    housing_deduction: float = 0.0
+    utilities_deduction: float = 0.0
     net_amount: float = 0.0
