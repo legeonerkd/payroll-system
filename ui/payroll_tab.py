@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from tkcalendar import DateEntry
 
@@ -78,7 +78,7 @@ class PayrollTab(ttk.Frame):
             self,
             columns=("date", "day", "hours"),
             show="headings",
-            height=10,
+            height=12,
         )
         self.tree.heading("date", text="Date")
         self.tree.heading("day", text="Day")
@@ -120,6 +120,7 @@ class PayrollTab(ttk.Frame):
 
         employee = self._get_selected_employee()
         if not employee:
+            messagebox.showwarning("Employee", "Select employee first")
             return
 
         start = self.start_entry.get_date()
@@ -129,7 +130,7 @@ class PayrollTab(ttk.Frame):
             messagebox.showerror("Period", "Start date is after end date")
             return
 
-        # load existing hours from DB
+        # existing hours from DB
         db_rows = self.db.load_hours(
             employee.id,
             start.strftime("%Y-%m-%d"),
@@ -142,7 +143,7 @@ class PayrollTab(ttk.Frame):
             iso = current.strftime("%Y-%m-%d")
             ui = current.strftime("%d.%m.%Y")
             day = current.strftime("%A")
-            hours = hours_map.get(iso, 0)
+            hours = hours_map.get(iso, 0.0)
 
             self.tree.insert(
                 "",
@@ -175,7 +176,7 @@ class PayrollTab(ttk.Frame):
             try:
                 val = float(entry.get())
             except ValueError:
-                val = 0
+                val = 0.0
             self.tree.set(item, "hours", val)
             entry.destroy()
 
@@ -191,14 +192,17 @@ class PayrollTab(ttk.Frame):
             messagebox.showwarning("Employee", "Select employee first")
             return
 
+        # 🔴 ВАЖНО: берём ВСЕ дни, включая 0
         hours_map = {}
         for iid in self.tree.get_children():
-            hours = float(self.tree.set(iid, "hours"))
-            if hours > 0:
-                hours_map[iid] = hours
+            try:
+                hours = float(self.tree.set(iid, "hours"))
+            except ValueError:
+                hours = 0.0
+            hours_map[iid] = hours
 
         if not hours_map:
-            messagebox.showwarning("Hours", "No hours in selected period")
+            messagebox.showwarning("Period", "Generate period first")
             return
 
         if self.rate_mode.get() == "fixed":
@@ -231,4 +235,3 @@ class PayrollTab(ttk.Frame):
 
         if preview and pdf_path and pdf_path.exists():
             os.startfile(str(pdf_path))
-
