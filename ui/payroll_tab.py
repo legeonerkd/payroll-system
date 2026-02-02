@@ -20,8 +20,10 @@ class PayrollTab(ttk.Frame):
         self.db = db
         self.templates_dir = templates_dir
 
+        self.employees: list[Employee] = []
+
         self._build_ui()
-        self._load_employees()
+        self.refresh_employees()
 
     # ==================================================
     # UI
@@ -73,12 +75,31 @@ class PayrollTab(ttk.Frame):
             value="custom",
         ).pack(side="left", padx=10)
 
+        # ---------- deductions ----------
+        deductions = ttk.LabelFrame(self, text="Deductions (only for employee rate)")
+        deductions.pack(fill="x", pady=5)
+
+        self.housing_var = tk.BooleanVar()
+        self.utilities_var = tk.BooleanVar()
+
+        ttk.Checkbutton(deductions, text="Housing", variable=self.housing_var)\
+            .grid(row=0, column=0, sticky="w", padx=5)
+        self.housing_entry = ttk.Entry(deductions, width=10)
+        self.housing_entry.grid(row=0, column=1, padx=5)
+        ttk.Label(deductions, text="€").grid(row=0, column=2)
+
+        ttk.Checkbutton(deductions, text="Utilities", variable=self.utilities_var)\
+            .grid(row=1, column=0, sticky="w", padx=5)
+        self.utilities_entry = ttk.Entry(deductions, width=10)
+        self.utilities_entry.grid(row=1, column=1, padx=5)
+        ttk.Label(deductions, text="€").grid(row=1, column=2)
+
         # ---------- table ----------
         self.tree = ttk.Treeview(
             self,
             columns=("date", "day", "hours"),
             show="headings",
-            height=12,
+            height=10,
         )
         self.tree.heading("date", text="Date")
         self.tree.heading("day", text="Day")
@@ -89,7 +110,6 @@ class PayrollTab(ttk.Frame):
         self.tree.column("hours", width=80, anchor="center")
 
         self.tree.pack(fill="both", expand=True, pady=10)
-
         self.tree.bind("<Double-1>", self._edit_hours)
 
         # ---------- buttons ----------
@@ -100,9 +120,9 @@ class PayrollTab(ttk.Frame):
         ).pack(fill="x", pady=10)
 
     # ==================================================
-    # DATA
+    # EMPLOYEES
     # ==================================================
-    def _load_employees(self):
+    def refresh_employees(self):
         self.employees = [Employee.from_row(r) for r in self.db.get_employees()]
         self.employee_combo["values"] = [e.name for e in self.employees]
         if self.employees:
@@ -113,7 +133,7 @@ class PayrollTab(ttk.Frame):
         return next((e for e in self.employees if e.name == name), None)
 
     # ==================================================
-    # PERIOD GENERATION
+    # PERIOD
     # ==================================================
     def _generate_period(self):
         self.tree.delete(*self.tree.get_children())
@@ -130,7 +150,6 @@ class PayrollTab(ttk.Frame):
             messagebox.showerror("Period", "Start date is after end date")
             return
 
-        # existing hours from DB
         db_rows = self.db.load_hours(
             employee.id,
             start.strftime("%Y-%m-%d"),
@@ -141,17 +160,16 @@ class PayrollTab(ttk.Frame):
         current = start
         while current <= end:
             iso = current.strftime("%Y-%m-%d")
-            ui = current.strftime("%d.%m.%Y")
-            day = current.strftime("%A")
-            hours = hours_map.get(iso, 0.0)
-
             self.tree.insert(
                 "",
                 "end",
                 iid=iso,
-                values=(ui, day, hours),
+                values=(
+                    current.strftime("%d.%m.%Y"),
+                    current.strftime("%A"),
+                    hours_map.get(iso, 0.0),
+                ),
             )
-
             current += timedelta(days=1)
 
     # ==================================================
@@ -165,11 +183,9 @@ class PayrollTab(ttk.Frame):
             return
 
         x, y, w, h = self.tree.bbox(item, column)
-        value = self.tree.set(item, "hours")
-
-        entry = ttk.Entry(self.tree, width=6)
+        entry = ttk.Entry(self.tree)
         entry.place(x=x, y=y, width=w, height=h)
-        entry.insert(0, value)
+        entry.insert(0, self.tree.set(item, "hours"))
         entry.focus()
 
         def save(_):
@@ -189,35 +205,33 @@ class PayrollTab(ttk.Frame):
     def _generate_pdf(self, preview: bool):
         employee = self._get_selected_employee()
         if not employee:
-            messagebox.showwarning("Employee", "Select employee first")
             return
 
-        # 🔴 ВАЖНО: берём ВСЕ дни, включая 0
         hours_map = {}
         for iid in self.tree.get_children():
             try:
-                hours = float(self.tree.set(iid, "hours"))
+                hours_map[iid] = float(self.tree.set(iid, "hours"))
             except ValueError:
-                hours = 0.0
-            hours_map[iid] = hours
+                hours_map[iid] = 0.0
 
         if not hours_map:
             messagebox.showwarning("Period", "Generate period first")
             return
 
+        housing = float(self.housing_entry.get() or 0) if self.housing_var.get() else 0.0
+        utilities = float(self.utilities_entry.get() or 0) if self.utilities_var.get() else 0.0
+
         if self.rate_mode.get() == "fixed":
             rows, summary = calculate_fixed_payroll(
                 employee,
                 hours_map,
-                None,
-                None,
             )
         else:
             rows, summary = calculate_custom_payroll(
                 employee,
                 hours_map,
-                None,
-                None,
+                housing=housing,
+                utilities=utilities,
             )
 
         output_dir = Path("Payroll")
@@ -235,3 +249,4 @@ class PayrollTab(ttk.Frame):
 
         if preview and pdf_path and pdf_path.exists():
             os.startfile(str(pdf_path))
+

@@ -69,6 +69,13 @@ class Database:
         )
         self.conn.commit()
 
+    def update_employee_name(self, emp_id: int, name: str):
+        self.cur.execute(
+            "UPDATE employees SET name=? WHERE id=?",
+            (name, emp_id),
+        )
+        self.conn.commit()
+
     def update_employee_rate(self, emp_id: int, rate: float):
         self.cur.execute(
             "UPDATE employees SET rate=? WHERE id=?",
@@ -134,9 +141,6 @@ class Database:
     # CLOSE
     # ==================================================
     def close(self):
-        """
-        Gracefully close DB connection (used on app shutdown)
-        """
         try:
             self.conn.commit()
         except Exception:
