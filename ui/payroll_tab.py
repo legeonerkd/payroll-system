@@ -1,10 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
+import os
 
 from tkcalendar import DateEntry
 
-from core.db import Database
 from core.models import Employee
 from services.payroll_service import (
     calculate_fixed_payroll,
@@ -14,28 +15,27 @@ from services.report_service import generate_payroll_pdf
 
 
 class PayrollTab(ttk.Frame):
-    def __init__(self, parent, db: Database, templates_dir):
+    def __init__(self, parent, db, templates_dir):
         super().__init__(parent)
         self.db = db
         self.templates_dir = templates_dir
 
         self.employee: Employee | None = None
-        self.hours_map = {}
+        self.employees: list[Employee] = []
+        self.hours_map: dict[str, float] = {}
 
         self._build_ui()
         self._load_employees()
 
-    # --------------------------------------------------
+    # ==================================================
     # UI
-    # --------------------------------------------------
+    # ==================================================
     def _build_ui(self):
-        # ===== Employee =====
         ttk.Label(self, text="Employee").pack(anchor="w")
         self.employee_combo = ttk.Combobox(self, state="readonly")
         self.employee_combo.pack(fill="x")
         self.employee_combo.bind("<<ComboboxSelected>>", self._on_employee_change)
 
-        # ===== Report type =====
         ttk.Label(self, text="Report type").pack(anchor="w", pady=(10, 0))
         self.report_type = tk.StringVar(value="fixed")
 
@@ -51,48 +51,40 @@ class PayrollTab(ttk.Frame):
             command=self._on_report_type_change
         ).pack(anchor="w")
 
-        # ===== Custom rate =====
         self.rate_frame = ttk.Frame(self)
         ttk.Label(self.rate_frame, text="Rate (€ / hour)").pack(anchor="w")
         self.rate_entry = ttk.Entry(self.rate_frame)
         self.rate_entry.pack(fill="x")
 
-        # ===== Deductions =====
         self.deductions_frame = ttk.LabelFrame(self, text="Deductions")
 
         self.housing_var = tk.BooleanVar()
         self.utilities_var = tk.BooleanVar()
 
-        self.housing_check = ttk.Checkbutton(
-            self.deductions_frame,
-            text="Housing",
+        ttk.Checkbutton(
+            self.deductions_frame, text="Housing",
             variable=self.housing_var,
             command=self._toggle_deductions
-        )
-        self.utilities_check = ttk.Checkbutton(
-            self.deductions_frame,
-            text="Utilities",
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Checkbutton(
+            self.deductions_frame, text="Utilities",
             variable=self.utilities_var,
             command=self._toggle_deductions
-        )
-
-        self.housing_check.grid(row=0, column=0, sticky="w")
-        self.utilities_check.grid(row=1, column=0, sticky="w")
+        ).grid(row=1, column=0, sticky="w")
 
         self.housing_entry = ttk.Entry(self.deductions_frame)
         self.utilities_entry = ttk.Entry(self.deductions_frame)
 
-        self.housing_entry.grid(row=0, column=1, padx=5)
-        self.utilities_entry.grid(row=1, column=1, padx=5)
+        self.housing_entry.grid(row=0, column=1)
+        self.utilities_entry.grid(row=1, column=1)
 
-        # ===== Period =====
         ttk.Label(self, text="Period").pack(anchor="w", pady=(10, 0))
         self.start_entry = DateEntry(self, date_pattern="dd-mm-yyyy")
         self.end_entry = DateEntry(self, date_pattern="dd-mm-yyyy")
         self.start_entry.pack(fill="x")
         self.end_entry.pack(fill="x")
 
-        # ===== Hours table =====
         self.tree = ttk.Treeview(
             self,
             columns=("date", "weekday", "hours"),
@@ -106,23 +98,20 @@ class PayrollTab(ttk.Frame):
 
         self.tree.bind("<Double-1>", self._edit_hours)
 
-        # ===== Buttons =====
-        ttk.Button(self, text="Generate period", command=self._generate_period)\
-            .pack(fill="x")
-        ttk.Button(self, text="Preview PDF", command=lambda: self._generate_pdf(True))\
-            .pack(fill="x", pady=2)
-        ttk.Button(self, text="Generate PDF", command=lambda: self._generate_pdf(False))\
-            .pack(fill="x")
+        ttk.Button(self, text="Generate period", command=self._generate_period).pack(fill="x")
+        ttk.Button(self, text="Preview PDF", command=lambda: self._generate_pdf(True)).pack(fill="x")
+        ttk.Button(self, text="Generate PDF", command=lambda: self._generate_pdf(False)).pack(fill="x")
 
         self._on_report_type_change()
         self._toggle_deductions()
 
-    # --------------------------------------------------
+    # ==================================================
     # DATA
-    # --------------------------------------------------
+    # ==================================================
     def _load_employees(self):
         rows = self.db.get_employees()
         self.employees = [Employee.from_row(r) for r in rows]
+
         self.employee_combo["values"] = [e.name for e in self.employees]
         if self.employees:
             self.employee_combo.current(0)
@@ -132,9 +121,9 @@ class PayrollTab(ttk.Frame):
         name = self.employee_combo.get()
         self.employee = next(e for e in self.employees if e.name == name)
 
-    # --------------------------------------------------
-    # PERIOD & HOURS
-    # --------------------------------------------------
+    # ==================================================
+    # PERIOD
+    # ==================================================
     def _generate_period(self):
         if not self.employee:
             return
@@ -151,20 +140,11 @@ class PayrollTab(ttk.Frame):
             ui = d.strftime("%d-%m-%Y")
             weekday = d.strftime("%A")
 
-            hours = self.db.load_hours(
-                self.employee.id, iso, iso
-            )
-            value = hours[0]["hours"] if hours else 0
+            saved = self.db.load_hours(self.employee.id, iso, iso)
+            hours = saved[0]["hours"] if saved else 0.0
 
-            self.hours_map[iso] = value
-
-            self.tree.insert(
-                "",
-                "end",
-                iid=iso,
-                values=(ui, weekday, value)
-            )
-
+            self.hours_map[iso] = hours
+            self.tree.insert("", "end", iid=iso, values=(ui, weekday, hours))
             d += timedelta(days=1)
 
     def _edit_hours(self, event):
@@ -183,7 +163,7 @@ class PayrollTab(ttk.Frame):
             try:
                 val = float(entry.get())
             except ValueError:
-                val = 0
+                val = 0.0
 
             self.tree.set(row, "hours", val)
             self.hours_map[row] = val
@@ -193,9 +173,9 @@ class PayrollTab(ttk.Frame):
         entry.bind("<Return>", save)
         entry.bind("<FocusOut>", save)
 
-    # --------------------------------------------------
-    # REPORT
-    # --------------------------------------------------
+    # ==================================================
+    # OPTIONS
+    # ==================================================
     def _on_report_type_change(self):
         if self.report_type.get() == "custom":
             self.rate_frame.pack(fill="x", pady=5)
@@ -205,15 +185,15 @@ class PayrollTab(ttk.Frame):
             self.deductions_frame.pack_forget()
 
     def _toggle_deductions(self):
-        self.housing_entry.config(
-            state="normal" if self.housing_var.get() else "disabled"
-        )
-        self.utilities_entry.config(
-            state="normal" if self.utilities_var.get() else "disabled"
-        )
+        self.housing_entry.config(state="normal" if self.housing_var.get() else "disabled")
+        self.utilities_entry.config(state="normal" if self.utilities_var.get() else "disabled")
 
+    # ==================================================
+    # PDF
+    # ==================================================
     def _generate_pdf(self, preview: bool):
-        if not self.employee:
+        if not self.hours_map or not self.employee:
+            messagebox.showwarning("No data", "Generate period first")
             return
 
         start_iso = datetime.strptime(self.start_entry.get(), "%d-%m-%Y").strftime("%Y-%m-%d")
@@ -221,35 +201,22 @@ class PayrollTab(ttk.Frame):
 
         if self.report_type.get() == "fixed":
             rows, summary = calculate_fixed_payroll(
-                self.employee,
-                self.hours_map,
-                start_iso,
-                end_iso,
+                self.employee, self.hours_map, start_iso, end_iso
             )
             template_name = "report_fixed.json"
         else:
-            try:
-                rate = float(self.rate_entry.get())
-            except ValueError:
-                messagebox.showerror("Error", "Invalid rate")
-                return
-
+            rate = float(self.rate_entry.get())
             housing = float(self.housing_entry.get() or 0) if self.housing_var.get() else 0
             utilities = float(self.utilities_entry.get() or 0) if self.utilities_var.get() else 0
 
             rows, summary = calculate_custom_payroll(
-                self.employee,
-                self.hours_map,
-                start_iso,
-                end_iso,
-                rate,
-                housing,
-                utilities,
+                self.employee, self.hours_map,
+                start_iso, end_iso,
+                rate, housing, utilities
             )
             template_name = "report_custom.json"
 
-        template_path = self.templates_dir / template_name
-        with open(template_path, encoding="utf-8") as f:
+        with open(self.templates_dir / template_name, encoding="utf-8") as f:
             template = json.load(f)
 
         filename = f"{self.employee.name}_{start_iso}_{end_iso}.pdf"
@@ -265,7 +232,6 @@ class PayrollTab(ttk.Frame):
             output_path=output,
         )
 
-        if preview:
-            import os
-            if os.name == "nt":
-                os.startfile(output)
+        if preview and os.name == "nt":
+            os.startfile(output)
+
