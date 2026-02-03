@@ -1,3 +1,4 @@
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
@@ -222,10 +223,7 @@ class PayrollTab(ttk.Frame):
         utilities = float(self.utilities_entry.get() or 0) if self.utilities_var.get() else 0.0
 
         if self.rate_mode.get() == "fixed":
-            rows, summary = calculate_fixed_payroll(
-                employee,
-                hours_map,
-            )
+            rows, summary = calculate_fixed_payroll(employee, hours_map)
         else:
             rows, summary = calculate_custom_payroll(
                 employee,
@@ -247,6 +245,19 @@ class PayrollTab(ttk.Frame):
             output_path=output_dir,
         )
 
-        if preview and pdf_path and pdf_path.exists():
-            os.startfile(str(pdf_path))
-
+        if preview:
+            if pdf_path and pdf_path.exists():
+                try:
+                    os.startfile(str(pdf_path))
+                except Exception as e:
+                    messagebox.showerror(
+                        "Preview PDF",
+                        "PDF was created but could not be opened automatically.\n\n"
+                        f"File location:\n{pdf_path}\n\n"
+                        f"Error:\n{e}",
+                    )
+            else:
+                messagebox.showerror(
+                    "Preview PDF",
+                    "PDF file was not created.",
+                )
