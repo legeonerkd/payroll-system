@@ -4,6 +4,7 @@ from pathlib import Path
 
 from core.db import Database
 from core.backup import backup_db
+from core.paths import get_app_dir
 
 from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
@@ -17,8 +18,12 @@ class PayrollApp(tk.Tk):
         self.geometry("900x700")
         self.minsize(900, 700)
 
+        # ---------- app dir ----------
+        self.app_dir = get_app_dir("PayrollSystem")
+        self.db_path = self.app_dir / "salary.db"
+
         # ---------- database ----------
-        self.db = Database("salary.db")
+        self.db = Database(self.db_path)
 
         # ---------- ui ----------
         notebook = ttk.Notebook(self)
@@ -39,12 +44,12 @@ class PayrollApp(tk.Tk):
         )
         notebook.add(self.employees_tab, text="Employees")
 
-        # ---------- close handler ----------
+        # ---------- close ----------
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _on_close(self):
         try:
-            backup_db("salary.db")
+            backup_db(self.db_path)
         except Exception:
             pass
 
