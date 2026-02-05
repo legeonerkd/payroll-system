@@ -53,7 +53,6 @@ class EmployeesTab(ttk.Frame):
             style="CardTitle.TLabel"
         ).pack(anchor="w", padx=12, pady=(8, 4))
 
-        # ⬇⬇⬇ ВАЖНО: добавили колонку Name ⬇⬇⬇
         self.tree = ttk.Treeview(
             list_card,
             columns=("name", "rate", "iban"),
@@ -70,6 +69,9 @@ class EmployeesTab(ttk.Frame):
         self.tree.column("iban", width=260, anchor="w")
 
         self.tree.pack(fill="both", expand=True, padx=12, pady=8)
+
+        # ВАЖНО: обрабатываем клик по пустому месту
+        self.tree.bind("<Button-1>", self._on_tree_click, add=True)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         # ---------- FORM CARD ----------
@@ -94,10 +96,19 @@ class EmployeesTab(ttk.Frame):
         btns = ttk.Frame(form_card)
         btns.pack(fill="x", padx=12, pady=(0, 12))
 
-        ttk.Button(btns, text="Add", command=self._add_employee).pack(fill="x", pady=2)
-        ttk.Button(btns, text="Update", command=self._update_employee).pack(fill="x", pady=2)
-        ttk.Button(btns, text="Delete", command=self._delete_employee).pack(fill="x", pady=2)
-        ttk.Button(btns, text="Export CSV", command=self._export_csv).pack(fill="x", pady=(8, 2))
+        self.add_btn = ttk.Button(btns, text="Add", command=self._add_employee)
+        self.add_btn.pack(fill="x", pady=2)
+
+        self.update_btn = ttk.Button(btns, text="Update", command=self._update_employee)
+        self.update_btn.pack(fill="x", pady=2)
+
+        ttk.Button(btns, text="Delete", command=self._delete_employee)\
+            .pack(fill="x", pady=2)
+
+        ttk.Button(btns, text="Export CSV", command=self._export_csv)\
+            .pack(fill="x", pady=(8, 2))
+
+        self._update_buttons_state()
 
     # ======================================================
     # FORM HELPERS
@@ -109,30 +120,29 @@ class EmployeesTab(ttk.Frame):
         entry.grid(row=row, column=1, pady=4)
         setattr(self, f"{attr}_entry", entry)
 
+    def _clear_form(self):
+        for entry in (
+            self.name_entry,
+            self.rate_entry,
+            self.iban_entry,
+            self.bic_entry,
+        ):
+            entry.delete(0, tk.END)
+
     # ======================================================
-    # DATA
+    # TREE EVENTS
     # ======================================================
 
-    def _load_employees(self):
-        self.tree.delete(*self.tree.get_children())
-        self.employee_cache.clear()
-
-        rows = self.db.get_employees()
-        for r in rows:
-            emp_id = str(r["id"])
-            self.employee_cache[emp_id] = r
-
-            # ⬇⬇⬇ имя теперь реально отображается ⬇⬇⬇
-            self.tree.insert(
-                "",
-                "end",
-                iid=emp_id,
-                values=(
-                    r["name"],
-                    r["rate"],
-                    r["iban"] or "",
-                )
-            )
+    def _on_tree_click(self, event):
+        """
+        Если клик по пустому месту — снимаем выделение
+        """
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            self.tree.selection_remove(self.tree.selection())
+            self.selected_employee_id = None
+            self._clear_form()
+            self._update_buttons_state()
 
     def _on_select(self, event):
         sel = self.tree.selection()
@@ -146,17 +156,38 @@ class EmployeesTab(ttk.Frame):
 
         self.selected_employee_id = emp_id
 
-        self.name_entry.delete(0, tk.END)
+        self._clear_form()
         self.name_entry.insert(0, row["name"])
-
-        self.rate_entry.delete(0, tk.END)
         self.rate_entry.insert(0, row["rate"])
-
-        self.iban_entry.delete(0, tk.END)
         self.iban_entry.insert(0, row["iban"] or "")
-
-        self.bic_entry.delete(0, tk.END)
         self.bic_entry.insert(0, row["bic"] or "")
+
+        self._update_buttons_state()
+
+    def _update_buttons_state(self):
+        if self.selected_employee_id:
+            self.update_btn.state(["!disabled"])
+        else:
+            self.update_btn.state(["disabled"])
+
+    # ======================================================
+    # DATA
+    # ======================================================
+
+    def _load_employees(self):
+        self.tree.delete(*self.tree.get_children())
+        self.employee_cache.clear()
+
+        rows = self.db.get_employees()
+        for r in rows:
+            emp_id = str(r["id"])
+            self.employee_cache[emp_id] = r
+            self.tree.insert(
+                "",
+                "end",
+                iid=emp_id,
+                values=(r["name"], r["rate"], r["iban"] or "")
+            )
 
     # ======================================================
     # CRUD
@@ -224,16 +255,9 @@ class EmployeesTab(ttk.Frame):
 
     def _after_change(self):
         self.selected_employee_id = None
+        self._clear_form()
         self._load_employees()
-
-        for entry in (
-            self.name_entry,
-            self.rate_entry,
-            self.iban_entry,
-            self.bic_entry,
-        ):
-            entry.delete(0, tk.END)
+        self._update_buttons_state()
 
         if self.on_change:
             self.on_change()
-
