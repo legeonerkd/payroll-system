@@ -4,10 +4,62 @@ from tkinter import ttk, messagebox, filedialog
 from ui.styles import COLORS
 
 
+# ======================================================
+# PLACEHOLDER ENTRY
+# ======================================================
+
+class PlaceholderEntry(ttk.Entry):
+    def __init__(self, master, placeholder, **kwargs):
+        super().__init__(master, **kwargs)
+        self.placeholder = placeholder
+        self.placeholder_color = COLORS["text_secondary"]
+        self.default_fg = "#000000"
+
+        self._has_placeholder = False
+
+        self.bind("<FocusIn>", self._on_focus_in)
+        self.bind("<FocusOut>", self._on_focus_out)
+
+        self._show_placeholder()
+
+    def _show_placeholder(self):
+        if not self.get():
+            self._has_placeholder = True
+            self.configure(foreground=self.placeholder_color)
+            self.delete(0, tk.END)
+            self.insert(0, self.placeholder)
+
+    def _hide_placeholder(self):
+        if self._has_placeholder:
+            self._has_placeholder = False
+            self.configure(foreground=self.default_fg)
+            self.delete(0, tk.END)
+
+    def _on_focus_in(self, event):
+        self._hide_placeholder()
+
+    def _on_focus_out(self, event):
+        if not self.get():
+            self._show_placeholder()
+
+    def get_value(self):
+        if self._has_placeholder:
+            return ""
+        return self.get()
+
+
+# ======================================================
+# CARD
+# ======================================================
+
 class Card(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent, style="Card.TFrame")
 
+
+# ======================================================
+# EMPLOYEES TAB
+# ======================================================
 
 class EmployeesTab(ttk.Frame):
     def __init__(self, parent, db, on_change=None):
@@ -23,7 +75,7 @@ class EmployeesTab(ttk.Frame):
         self._build_ui()
         self._load_employees()
 
-        # ⬇⬇⬇ ГЛОБАЛЬНЫЙ СБРОС ПО КЛИКУ ⬇⬇⬇
+        # глобальный сброс по клику
         self.bind_all("<Button-1>", self._on_global_click, add=True)
 
     # ======================================================
@@ -87,10 +139,15 @@ class EmployeesTab(ttk.Frame):
         form = ttk.Frame(self.form_card)
         form.pack(fill="x", padx=12, pady=8)
 
-        self._field(form, "Name", "name", 0)
-        self._field(form, "Rate €/h", "rate", 1)
-        self._field(form, "IBAN", "iban", 2)
-        self._field(form, "BIC", "bic", 3)
+        self.name_entry = PlaceholderEntry(form, "Full name")
+        self.rate_entry = PlaceholderEntry(form, "Hourly rate (€/h)")
+        self.iban_entry = PlaceholderEntry(form, "IBAN (optional)")
+        self.bic_entry = PlaceholderEntry(form, "BIC (optional)")
+
+        self._place_field(form, "Name", self.name_entry, 0)
+        self._place_field(form, "Rate €/h", self.rate_entry, 1)
+        self._place_field(form, "IBAN", self.iban_entry, 2)
+        self._place_field(form, "BIC", self.bic_entry, 3)
 
         # ---------- BUTTONS ----------
         btns = ttk.Frame(self.form_card)
@@ -111,14 +168,12 @@ class EmployeesTab(ttk.Frame):
         self._update_buttons_state()
 
     # ======================================================
-    # FORM HELPERS
+    # FIELD HELPERS
     # ======================================================
 
-    def _field(self, parent, label, attr, row):
+    def _place_field(self, parent, label, entry, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=4)
-        entry = ttk.Entry(parent, width=30)
         entry.grid(row=row, column=1, pady=4)
-        setattr(self, f"{attr}_entry", entry)
 
     def _clear_form(self):
         for entry in (
@@ -128,18 +183,14 @@ class EmployeesTab(ttk.Frame):
             self.bic_entry,
         ):
             entry.delete(0, tk.END)
+            entry._show_placeholder()
 
     # ======================================================
-    # GLOBAL CLICK HANDLING
+    # GLOBAL CLICK
     # ======================================================
 
     def _on_global_click(self, event):
-        """
-        Любой клик вне Treeview → сброс выделения
-        """
         widget = event.widget
-
-        # Если клик внутри Treeview — ничего не делаем
         if widget == self.tree or str(widget).startswith(str(self.tree)):
             return
 
@@ -150,7 +201,7 @@ class EmployeesTab(ttk.Frame):
             self._update_buttons_state()
 
     # ======================================================
-    # TREE EVENTS
+    # TREE
     # ======================================================
 
     def _on_select(self, event):
@@ -187,8 +238,7 @@ class EmployeesTab(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self.employee_cache.clear()
 
-        rows = self.db.get_employees()
-        for r in rows:
+        for r in self.db.get_employees():
             emp_id = str(r["id"])
             self.employee_cache[emp_id] = r
             self.tree.insert(
@@ -205,10 +255,10 @@ class EmployeesTab(ttk.Frame):
     def _add_employee(self):
         try:
             self.db.add_employee(
-                name=self.name_entry.get(),
-                rate=float(self.rate_entry.get()),
-                iban=self.iban_entry.get(),
-                bic=self.bic_entry.get(),
+                name=self.name_entry.get_value(),
+                rate=float(self.rate_entry.get_value()),
+                iban=self.iban_entry.get_value(),
+                bic=self.bic_entry.get_value(),
             )
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -223,10 +273,10 @@ class EmployeesTab(ttk.Frame):
         try:
             self.db.update_employee(
                 emp_id=self.selected_employee_id,
-                name=self.name_entry.get(),
-                rate=float(self.rate_entry.get()),
-                iban=self.iban_entry.get(),
-                bic=self.bic_entry.get(),
+                name=self.name_entry.get_value(),
+                rate=float(self.rate_entry.get_value()),
+                iban=self.iban_entry.get_value(),
+                bic=self.bic_entry.get_value(),
             )
         except Exception as e:
             messagebox.showerror("Error", str(e))
