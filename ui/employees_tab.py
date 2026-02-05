@@ -9,8 +9,8 @@ from ui.styles import COLORS
 # ======================================================
 
 class PlaceholderEntry(ttk.Entry):
-    def __init__(self, master, placeholder, width=36, **kwargs):
-        super().__init__(master, width=width, **kwargs)
+    def __init__(self, master, placeholder, **kwargs):
+        super().__init__(master, **kwargs)
         self.placeholder = placeholder
         self.placeholder_color = COLORS["text_secondary"]
         self.default_fg = "#000000"
@@ -34,10 +34,10 @@ class PlaceholderEntry(ttk.Entry):
             self.configure(foreground=self.default_fg)
             self.delete(0, tk.END)
 
-    def _on_focus_in(self, event):
+    def _on_focus_in(self, _):
         self._hide_placeholder()
 
-    def _on_focus_out(self, event):
+    def _on_focus_out(self, _):
         if not self.get():
             self._show_placeholder()
 
@@ -50,11 +50,8 @@ class PlaceholderEntry(ttk.Entry):
 # ======================================================
 
 class Card(ttk.Frame):
-    def __init__(self, parent, min_width=None):
+    def __init__(self, parent):
         super().__init__(parent, style="Card.TFrame")
-        if min_width:
-            self.configure(width=min_width)
-            self.pack_propagate(False)
 
 
 # ======================================================
@@ -83,142 +80,133 @@ class EmployeesTab(ttk.Frame):
 
     def _init_styles(self):
         style = ttk.Style()
-        style.configure("FormTitle.Add.TLabel",
-                        foreground=COLORS["positive"],
-                        font=("Segoe UI", 10, "bold"))
-        style.configure("FormTitle.Edit.TLabel",
-                        foreground=COLORS["accent"],
-                        font=("Segoe UI", 10, "bold"))
-        style.configure("Error.TLabel",
-                        foreground=COLORS["negative"])
+
+        # --- Treeview fonts ---
+        style.configure(
+            "Employees.Treeview",
+            font=("Segoe UI", 11),
+            rowheight=28
+        )
+        style.configure(
+            "Employees.Treeview.Heading",
+            font=("Segoe UI", 11, "bold")
+        )
+
+        style.configure("Icon.TLabel", font=("Segoe UI Emoji", 11))
+        style.configure(
+            "FormTitle.Add.TLabel",
+            foreground=COLORS["positive"],
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.configure(
+            "FormTitle.Edit.TLabel",
+            foreground=COLORS["accent"],
+            font=("Segoe UI", 10, "bold"),
+        )
 
     # ======================================================
     # UI
     # ======================================================
 
     def _build_ui(self):
-        # ---------- LIST ----------
-        list_card = Card(self)
-        list_card.pack(side="left", fill="both", expand=True, padx=12, pady=8)
+        self.columnconfigure(0, weight=3)
+        self.columnconfigure(1, weight=2)
+        self.rowconfigure(0, weight=1)
 
-        ttk.Label(list_card, text="Employees", style="CardTitle.TLabel")\
-            .pack(anchor="w", padx=12, pady=(8, 4))
+        # ---------- LIST CARD ----------
+        list_card = Card(self)
+        list_card.grid(row=0, column=0, sticky="nsew", padx=12, pady=8)
+        list_card.rowconfigure(1, weight=1)
+        list_card.columnconfigure(0, weight=1)
+
+        ttk.Label(
+            list_card,
+            text="Employees",
+            style="CardTitle.TLabel"
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=(8, 4))
+
+        tree_frame = ttk.Frame(list_card)
+        tree_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=8)
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
 
         self.tree = ttk.Treeview(
-            list_card,
+            tree_frame,
             columns=("name", "rate", "iban"),
             show="headings",
-            height=15
+            style="Employees.Treeview"
         )
+
         self.tree.heading("name", text="Name")
         self.tree.heading("rate", text="Rate €/h")
         self.tree.heading("iban", text="IBAN")
 
-        self.tree.column("name", width=200)
-        self.tree.column("rate", width=80, anchor="center")
-        self.tree.column("iban", width=260)
+        self.tree.column("name", anchor="w", stretch=True, width=200)
+        self.tree.column("rate", anchor="center", stretch=False, width=90)
+        self.tree.column("iban", anchor="w", stretch=False, width=280)
 
-        self.tree.pack(fill="both", expand=True, padx=12, pady=8)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(
+            tree_frame,
+            orient="vertical",
+            command=self.tree.yview
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
-        # ---------- FORM (WIDER) ----------
-        self.form_card = Card(self, min_width=420)
-        self.form_card.pack(side="right", fill="y", padx=12, pady=8)
+        # ---------- FORM CARD ----------
+        self.form_card = Card(self)
+        self.form_card.grid(row=0, column=1, sticky="nsew", padx=12, pady=8)
+        self.form_card.columnconfigure(1, weight=1)
 
         self.form_title = ttk.Label(
             self.form_card,
             text="Add new employee",
-            style="FormTitle.Add.TLabel"
+            style="FormTitle.Add.TLabel",
         )
-        self.form_title.pack(anchor="w", padx=16, pady=(8, 4))
+        self.form_title.grid(
+            row=0, column=0, columnspan=2,
+            sticky="w", padx=16, pady=(8, 4)
+        )
 
         form = ttk.Frame(self.form_card)
-        form.pack(fill="x", padx=16, pady=8)
+        form.grid(row=1, column=0, columnspan=2,
+                  sticky="nsew", padx=16, pady=8)
+        form.columnconfigure(1, weight=1)
 
-        self.name_entry = PlaceholderEntry(form, "Full name")
-        self.rate_entry = PlaceholderEntry(form, "Hourly rate (€/h)")
-        self.iban_entry = PlaceholderEntry(form, "IBAN (optional)")
-        self.bic_entry = PlaceholderEntry(form, "BIC (optional)")
-
-        self._field(form, "Name", self.name_entry, 0)
-        self._field(form, "Rate €/h", self.rate_entry, 1)
-        self._field(form, "IBAN", self.iban_entry, 2)
-        self._field(form, "BIC", self.bic_entry, 3)
-
-        self.error_label = ttk.Label(self.form_card, text="", style="Error.TLabel")
-        self.error_label.pack(anchor="w", padx=16, pady=(0, 4))
+        self._icon_field(form, "👤", "name", "Full name", 0)
+        self._icon_field(form, "💶", "rate", "Hourly rate (€/h)", 1)
+        self._icon_field(form, "🏦", "iban", "IBAN (optional)", 2)
+        self._icon_field(form, "🧾", "bic", "BIC (optional)", 3)
 
         btns = ttk.Frame(self.form_card)
-        btns.pack(fill="x", padx=16, pady=(0, 12))
+        btns.grid(row=2, column=0, columnspan=2,
+                  sticky="ew", padx=16, pady=(8, 12))
+        btns.columnconfigure(0, weight=1)
 
         self.add_btn = ttk.Button(btns, text="Add", command=self._add_employee)
-        self.add_btn.pack(fill="x", pady=2)
+        self.add_btn.grid(row=0, column=0, sticky="ew", pady=2)
 
         self.update_btn = ttk.Button(btns, text="Update", command=self._update_employee)
-        self.update_btn.pack(fill="x", pady=2)
+        self.update_btn.grid(row=1, column=0, sticky="ew", pady=2)
+        self.update_btn.state(["disabled"])
 
         ttk.Button(btns, text="Delete", command=self._delete_employee)\
-            .pack(fill="x", pady=2)
-
-        ttk.Button(btns, text="Export CSV", command=self._export_csv)\
-            .pack(fill="x", pady=(8, 2))
-
-        for e in (self.name_entry, self.rate_entry):
-            e.bind("<KeyRelease>", lambda _: self._validate_form())
-
-        self._set_add_mode()
+            .grid(row=2, column=0, sticky="ew", pady=2)
 
     # ======================================================
-    # HELPERS / LOGIC (без изменений)
+    # EVENTS / DATA
     # ======================================================
 
-    def _field(self, parent, label, entry, row):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=4)
-        entry.grid(row=row, column=1, pady=4)
-
-    def _clear_form(self):
-        for e in (self.name_entry, self.rate_entry, self.iban_entry, self.bic_entry):
-            e.delete(0, tk.END)
-            e._show_placeholder()
-
-    def _set_add_mode(self):
-        self.selected_employee_id = None
-        self.form_title.configure(text="Add new employee", style="FormTitle.Add.TLabel")
-        self.update_btn.state(["disabled"])
-        self._validate_form()
-
-    def _set_edit_mode(self):
-        self.form_title.configure(text="Edit employee", style="FormTitle.Edit.TLabel")
-        self.update_btn.state(["!disabled"])
-        self._validate_form()
-
-    def _validate_form(self):
-        name = self.name_entry.get_value()
-        rate = self.rate_entry.get_value()
-
-        if not name:
-            self._set_error("Name is required")
-            return False
-
-        try:
-            if float(rate) <= 0:
-                raise ValueError
-        except Exception:
-            self._set_error("Rate must be a positive number")
-            return False
-
-        self._clear_error()
-        self.add_btn.state(["!disabled"])
-        self.update_btn.state(["!disabled"] if self.selected_employee_id else ["disabled"])
-        return True
-
-    def _set_error(self, msg):
-        self.error_label.configure(text=msg)
-        self.add_btn.state(["disabled"])
-        self.update_btn.state(["disabled"])
-
-    def _clear_error(self):
-        self.error_label.configure(text="")
+    def _icon_field(self, parent, icon, attr, placeholder, row):
+        ttk.Label(parent, text=icon, style="Icon.TLabel")\
+            .grid(row=row, column=0, sticky="w", pady=6)
+        entry = PlaceholderEntry(parent, placeholder)
+        entry.grid(row=row, column=1, sticky="ew", pady=6)
+        setattr(self, f"{attr}_entry", entry)
 
     def _on_global_click(self, event):
         if event.widget == self.tree or str(event.widget).startswith(str(self.tree)):
@@ -228,16 +216,15 @@ class EmployeesTab(ttk.Frame):
             self._clear_form()
             self._set_add_mode()
 
-    def _on_select(self, event):
+    def _on_select(self, _):
         sel = self.tree.selection()
         if not sel:
             return
-        emp_id = sel[0]
-        row = self.employee_cache.get(emp_id)
+        row = self.employee_cache.get(sel[0])
         if not row:
             return
 
-        self.selected_employee_id = emp_id
+        self.selected_employee_id = sel[0]
         self._clear_form()
 
         self.name_entry.insert(0, row["name"])
@@ -245,7 +232,29 @@ class EmployeesTab(ttk.Frame):
         self.iban_entry.insert(0, row["iban"] or "")
         self.bic_entry.insert(0, row["bic"] or "")
 
-        self._set_edit_mode()
+        self.form_title.configure(
+            text="Edit employee",
+            style="FormTitle.Edit.TLabel"
+        )
+        self.update_btn.state(["!disabled"])
+
+    def _clear_form(self):
+        for e in (
+            self.name_entry,
+            self.rate_entry,
+            self.iban_entry,
+            self.bic_entry,
+        ):
+            e.delete(0, tk.END)
+            e._show_placeholder()
+
+    def _set_add_mode(self):
+        self.selected_employee_id = None
+        self.form_title.configure(
+            text="Add new employee",
+            style="FormTitle.Add.TLabel"
+        )
+        self.update_btn.state(["disabled"])
 
     def _load_employees(self):
         self.tree.delete(*self.tree.get_children())
@@ -253,12 +262,12 @@ class EmployeesTab(ttk.Frame):
         for r in self.db.get_employees():
             eid = str(r["id"])
             self.employee_cache[eid] = r
-            self.tree.insert("", "end", iid=eid,
-                             values=(r["name"], r["rate"], r["iban"] or ""))
+            self.tree.insert(
+                "", "end", iid=eid,
+                values=(r["name"], r["rate"], r["iban"] or "")
+            )
 
     def _add_employee(self):
-        if not self._validate_form():
-            return
         self.db.add_employee(
             name=self.name_entry.get_value(),
             rate=float(self.rate_entry.get_value()),
@@ -268,7 +277,7 @@ class EmployeesTab(ttk.Frame):
         self._after_change()
 
     def _update_employee(self):
-        if not self.selected_employee_id or not self._validate_form():
+        if not self.selected_employee_id:
             return
         self.db.update_employee(
             emp_id=self.selected_employee_id,
@@ -280,15 +289,9 @@ class EmployeesTab(ttk.Frame):
         self._after_change()
 
     def _delete_employee(self):
-        if not self.selected_employee_id:
-            return
-        self.db.delete_employee(self.selected_employee_id)
-        self._after_change()
-
-    def _export_csv(self):
-        path = filedialog.asksaveasfilename(defaultextension=".csv")
-        if path:
-            self.db.export_employees_csv(path)
+        if self.selected_employee_id:
+            self.db.delete_employee(self.selected_employee_id)
+            self._after_change()
 
     def _after_change(self):
         self._clear_form()
@@ -296,4 +299,3 @@ class EmployeesTab(ttk.Frame):
         self._load_employees()
         if self.on_change:
             self.on_change()
-
