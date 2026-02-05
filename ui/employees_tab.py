@@ -23,6 +23,9 @@ class EmployeesTab(ttk.Frame):
         self._build_ui()
         self._load_employees()
 
+        # ⬇⬇⬇ ГЛОБАЛЬНЫЙ СБРОС ПО КЛИКУ ⬇⬇⬇
+        self.bind_all("<Button-1>", self._on_global_click, add=True)
+
     # ======================================================
     # STYLES
     # ======================================================
@@ -69,22 +72,19 @@ class EmployeesTab(ttk.Frame):
         self.tree.column("iban", width=260, anchor="w")
 
         self.tree.pack(fill="both", expand=True, padx=12, pady=8)
-
-        # ВАЖНО: обрабатываем клик по пустому месту
-        self.tree.bind("<Button-1>", self._on_tree_click, add=True)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         # ---------- FORM CARD ----------
-        form_card = Card(self)
-        form_card.pack(side="right", fill="y", padx=12, pady=8)
+        self.form_card = Card(self)
+        self.form_card.pack(side="right", fill="y", padx=12, pady=8)
 
         ttk.Label(
-            form_card,
+            self.form_card,
             text="Employee details",
             style="CardTitle.TLabel"
         ).pack(anchor="w", padx=12, pady=(8, 4))
 
-        form = ttk.Frame(form_card)
+        form = ttk.Frame(self.form_card)
         form.pack(fill="x", padx=12, pady=8)
 
         self._field(form, "Name", "name", 0)
@@ -93,7 +93,7 @@ class EmployeesTab(ttk.Frame):
         self._field(form, "BIC", "bic", 3)
 
         # ---------- BUTTONS ----------
-        btns = ttk.Frame(form_card)
+        btns = ttk.Frame(self.form_card)
         btns.pack(fill="x", padx=12, pady=(0, 12))
 
         self.add_btn = ttk.Button(btns, text="Add", command=self._add_employee)
@@ -130,19 +130,28 @@ class EmployeesTab(ttk.Frame):
             entry.delete(0, tk.END)
 
     # ======================================================
-    # TREE EVENTS
+    # GLOBAL CLICK HANDLING
     # ======================================================
 
-    def _on_tree_click(self, event):
+    def _on_global_click(self, event):
         """
-        Если клик по пустому месту — снимаем выделение
+        Любой клик вне Treeview → сброс выделения
         """
-        row_id = self.tree.identify_row(event.y)
-        if not row_id:
+        widget = event.widget
+
+        # Если клик внутри Treeview — ничего не делаем
+        if widget == self.tree or str(widget).startswith(str(self.tree)):
+            return
+
+        if self.selected_employee_id is not None:
             self.tree.selection_remove(self.tree.selection())
             self.selected_employee_id = None
             self._clear_form()
             self._update_buttons_state()
+
+    # ======================================================
+    # TREE EVENTS
+    # ======================================================
 
     def _on_select(self, event):
         sel = self.tree.selection()
