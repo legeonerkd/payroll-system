@@ -1,34 +1,132 @@
-# ui/styles.py
-# Business / Accounting theme
+from tkinter import ttk
 
 COLORS = {
-    # Base
-    "app_bg": "#f5f7fa",
-    "card_bg": "#ffffff",
-    "border": "#d6dbe3",
+    # Backgrounds
+    "bg": "#F4F6F8",
+    "card": "#FFFFFF",
+    "border": "#DADDE1",
 
     # Text
-    "text_primary": "#1f2937",
-    "text_secondary": "#6b7280",
+    "text": "#212529",
+    "text_secondary": "#6C757D",
+    "muted": "#6C757D",
 
-    # Accent
-    "accent": "#2563eb",
-    "accent_soft": "#e8efff",
+    # Accents
+    "accent": "#2C7BE5",
+    "accent_hover": "#1C6ED5",
+    "positive": "#2FB344",
+    "negative": "#E03131",
+    "warning": "#F08C00",
 
-    # Buttons
-    "btn_primary_bg": "#2563eb",
-    "btn_primary_fg": "#ffffff",
-    "btn_secondary_bg": "#e5e7eb",
-    "btn_secondary_fg": "#1f2937",
-
-    # Table
-    "table_header": "#f1f5f9",
-
-    # Summary
-    "positive": "#065f46",
-    "negative": "#991b1b",
-    "summary_bg": "#f8fafc",
-
-    # Special days
-    "sunday_bg": "#fdecec",
+    # Disabled
+    "disabled_bg": "#E9ECEF",
+    "disabled_text": "#ADB5BD",
 }
+
+
+def setup_styles(root):
+    style = ttk.Style(root)
+    style.theme_use("default")
+
+    # ---------- Base ----------
+    style.configure(
+        ".",
+        background=COLORS["bg"],
+        foreground=COLORS["text"],
+        font=("Segoe UI", 10),
+    )
+
+    # ---------- Notebook ----------
+    style.configure(
+        "TNotebook",
+        background=COLORS["bg"],
+        borderwidth=0,
+    )
+
+    style.configure(
+        "TNotebook.Tab",
+        padding=(14, 7),
+        font=("Segoe UI", 10, "bold"),
+    )
+
+    # ---------- Card ----------
+    style.configure(
+        "Card.TFrame",
+        background=COLORS["card"],
+        borderwidth=1,
+        relief="solid",
+    )
+
+    # ---------- Labels ----------
+    style.configure(
+        "TLabel",
+        background=COLORS["card"],
+        font=("Segoe UI", 10),
+    )
+
+    style.configure(
+        "Muted.TLabel",
+        foreground=COLORS["muted"],
+    )
+
+    # ---------- Buttons ----------
+    style.configure(
+        "TButton",
+        padding=(12, 6),
+        font=("Segoe UI", 10),
+        background=COLORS["accent"],
+    )
+
+    style.map(
+        "TButton",
+        background=[
+            ("active", COLORS["accent_hover"]),
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+        foreground=[
+            ("disabled", COLORS["disabled_text"]),
+        ],
+    )
+
+    # ---------- Treeview ----------
+    style.configure(
+        "Treeview",
+        font=("Segoe UI", 10),
+        rowheight=30,
+        background=COLORS["card"],
+        fieldbackground=COLORS["card"],
+        bordercolor=COLORS["border"],
+        relief="flat",
+    )
+
+    style.map(
+        "Treeview",
+        background=[
+            ("selected", COLORS["accent"]),
+        ],
+        foreground=[
+            ("selected", "white"),
+        ],
+    )
+
+    style.configure(
+        "Treeview.Heading",
+        font=("Segoe UI", 10, "bold"),
+        background=COLORS["bg"],
+    )
+
+    # ---------- Disabled Entry ----------
+    style.configure(
+        "TEntry",
+        padding=6,
+    )
+
+    style.map(
+        "TEntry",
+        fieldbackground=[
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+        foreground=[
+            ("disabled", COLORS["disabled_text"]),
+        ],
+    )
