@@ -1,66 +1,65 @@
+
 import tkinter as tk
 from tkinter import ttk
-from pathlib import Path
+import os
 
-from core.db import Database
-from core.backup import backup_db
-from core.paths import get_app_dir
+from core.database import Database
+from core.version import APP_NAME, APP_VERSION
 
 from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
+from ui.payroll_history import PayrollHistory
 
 
 class PayrollApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("Payroll System")
-        self.geometry("900x700")
-        self.minsize(900, 700)
+        # ---------------- WINDOW ----------------
+        self.title(f"{APP_NAME} v{APP_VERSION}")
+        self.geometry("1000x650")
+        self.minsize(900, 600)
 
-        # ---------- app dir ----------
-        self.app_dir = get_app_dir("PayrollSystem")
-        self.db_path = self.app_dir / "salary.db"
+        # ---------------- DATABASE ----------------
+        local_appdata = os.getenv("LOCALAPPDATA")
+        db_dir = os.path.join(local_appdata, "PayrollSystem")
+        db_path = os.path.join(db_dir, "payroll.db")
 
-        # ---------- database ----------
-        self.db = Database(self.db_path)
+        os.makedirs(db_dir, exist_ok=True)
+        self.db = Database(db_path)
 
-        # ---------- ui ----------
+        # ---------------- NOTEBOOK ----------------
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
 
-        base_dir = Path(__file__).resolve().parent
-        templates_dir = base_dir / "templates"
-
-        # ---------- payroll tab ----------
-        self.payroll_tab = PayrollTab(notebook, self.db, templates_dir)
-        notebook.add(self.payroll_tab, text="Payroll")
-
-        # ---------- employees tab ----------
+        # Employees tab
         self.employees_tab = EmployeesTab(
             notebook,
             self.db,
-            on_change=self.payroll_tab.refresh_employees,
+            on_change=None
         )
         notebook.add(self.employees_tab, text="Employees")
 
-        # ---------- close ----------
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # Payroll tab
+        self.payroll_tab = PayrollTab(
+            notebook,
+            self.db
+        )
+        notebook.add(self.payroll_tab, text="Payroll")
 
-    def _on_close(self):
-        try:
-            backup_db(self.db_path)
-        except Exception:
-            pass
+        # ---------------- MENU ----------------
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
 
-        try:
-            self.db.close()
-        except Exception:
-            pass
-
-        self.destroy()
+        history_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="History", menu=history_menu)
+        history_menu.add_command(
+            label="Payroll history",
+            command=lambda: PayrollHistory(self, self.db)
+        )
 
 
 if __name__ == "__main__":
     app = PayrollApp()
     app.mainloop()
+
