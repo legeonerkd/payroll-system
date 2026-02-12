@@ -80,6 +80,8 @@ class PayrollTab(ttk.Frame):
             columns=("date", "day", "hours"),
             show="headings",
         )
+        self.tree.bind("<Button-1>", self.clear_selection_on_click, add="+")
+
         self.tree.heading("date", text="Date", anchor="center")
         self.tree.heading("day", text="Day", anchor="center")
         self.tree.heading("hours", text="Hours", anchor="center")
@@ -89,7 +91,18 @@ class PayrollTab(ttk.Frame):
         self.tree.column("hours", width=80, anchor="center")
 
         self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<Double-1>", self._start_edit_hours)
+    def clear_selection_on_click(self, event):
+        region = self.tree.identify("region", event.x, event.y)
+        item = self.tree.identify_row(event.y)
+
+    # Если кликнули не по строке
+        if not item:
+            self.tree.selection_remove(self.tree.selection())
+
+    # Обязательно возвращаем None,
+    # чтобы стандартное поведение Treeview сохранилось
+        return None
+
 
     # ======================================================
     # DATA
