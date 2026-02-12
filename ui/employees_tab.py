@@ -29,13 +29,13 @@ class EmployeesTab(ttk.Frame):
 
         # ---------- TABLE ----------
         table_frame = ttk.Frame(self)
-        table_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        table_frame.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
 
         self.tree = ttk.Treeview(
             table_frame,
             columns=("name", "rate", "bank", "iban", "bic"),
             show="headings",
-            height=20
+            height=18
         )
 
         self.tree.heading("name", text="Name")
@@ -44,22 +44,25 @@ class EmployeesTab(ttk.Frame):
         self.tree.heading("iban", text="IBAN")
         self.tree.heading("bic", text="BIC")
 
-        self.tree.column("name", width=180)
-        self.tree.column("rate", width=80, anchor="center")
-        self.tree.column("bank", width=140)
-        self.tree.column("iban", width=200)
-        self.tree.column("bic", width=100)
+        self.tree.column("name", width=200)
+        self.tree.column("rate", width=90, anchor="center")
+        self.tree.column("bank", width=150)
+        self.tree.column("iban", width=220)
+        self.tree.column("bic", width=120)
 
         self.tree.pack(fill="both", expand=True)
+
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Button-1>", self._on_tree_click)
 
         # ---------- FORM ----------
         form = ttk.LabelFrame(self, text="Employee details")
-        form.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        form.grid(row=0, column=1, sticky="nsew", padx=12, pady=12)
 
         def row(label, var, r):
-            ttk.Label(form, text=label).grid(row=r, column=0, sticky="w", pady=4)
-            ttk.Entry(form, textvariable=var).grid(row=r, column=1, sticky="ew", pady=4)
+            ttk.Label(form, text=label).grid(row=r, column=0, sticky="w", pady=6)
+            entry = ttk.Entry(form, textvariable=var)
+            entry.grid(row=r, column=1, sticky="ew", pady=6)
 
         row("Full name *", self.name_var, 0)
         row("Hourly rate €/h *", self.rate_var, 1)
@@ -71,21 +74,30 @@ class EmployeesTab(ttk.Frame):
 
         # ---------- BUTTONS ----------
         btns = ttk.Frame(form)
-        btns.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
+        btns.grid(row=5, column=0, columnspan=2, pady=12, sticky="ew")
 
         self.new_btn = ttk.Button(btns, text="Add New", command=self._new_employee_mode)
-        self.new_btn.pack(fill="x", pady=2)
+        self.new_btn.pack(fill="x", pady=3)
 
         self.add_btn = ttk.Button(btns, text="Add", command=self._add)
-        self.add_btn.pack(fill="x", pady=2)
+        self.add_btn.pack(fill="x", pady=3)
 
         self.update_btn = ttk.Button(btns, text="Update", command=self._update)
-        self.update_btn.pack(fill="x", pady=2)
+        self.update_btn.pack(fill="x", pady=3)
 
         self.delete_btn = ttk.Button(btns, text="Delete", command=self._delete)
-        self.delete_btn.pack(fill="x", pady=2)
+        self.delete_btn.pack(fill="x", pady=3)
 
         self._set_button_state(new_mode=True)
+
+    # ======================================================
+    # TABLE CLICK HANDLING
+    # ======================================================
+
+    def _on_tree_click(self, event):
+        item = self.tree.identify_row(event.y)
+        if not item:
+            self._new_employee_mode()
 
     # ======================================================
     # DATA
@@ -139,7 +151,6 @@ class EmployeesTab(ttk.Frame):
         self.bic_var.set("")
 
         self._set_button_state(new_mode=True)
-        self.focus_set()
 
     def _set_button_state(self, new_mode):
         if new_mode:
@@ -231,4 +242,3 @@ class EmployeesTab(ttk.Frame):
 
         if self.on_change:
             self.on_change()
-
