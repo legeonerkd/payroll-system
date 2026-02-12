@@ -73,9 +73,19 @@ class EmployeesTab(ttk.Frame):
         btns = ttk.Frame(form)
         btns.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
 
-        ttk.Button(btns, text="Add", command=self._add).pack(fill="x", pady=2)
-        ttk.Button(btns, text="Update", command=self._update).pack(fill="x", pady=2)
-        ttk.Button(btns, text="Delete", command=self._delete).pack(fill="x", pady=2)
+        self.new_btn = ttk.Button(btns, text="Add New", command=self._new_employee_mode)
+        self.new_btn.pack(fill="x", pady=2)
+
+        self.add_btn = ttk.Button(btns, text="Add", command=self._add)
+        self.add_btn.pack(fill="x", pady=2)
+
+        self.update_btn = ttk.Button(btns, text="Update", command=self._update)
+        self.update_btn.pack(fill="x", pady=2)
+
+        self.delete_btn = ttk.Button(btns, text="Delete", command=self._delete)
+        self.delete_btn.pack(fill="x", pady=2)
+
+        self._set_button_state(new_mode=True)
 
     # ======================================================
     # DATA
@@ -112,8 +122,37 @@ class EmployeesTab(ttk.Frame):
         self.iban_var.set(r["iban"] or "")
         self.bic_var.set(r["bic"] or "")
 
+        self._set_button_state(new_mode=False)
+
     # ======================================================
-    # ACTIONS
+    # MODES
+    # ======================================================
+
+    def _new_employee_mode(self):
+        self.tree.selection_remove(self.tree.selection())
+        self.selected_id = None
+
+        self.name_var.set("")
+        self.rate_var.set("")
+        self.bank_var.set("")
+        self.iban_var.set("")
+        self.bic_var.set("")
+
+        self._set_button_state(new_mode=True)
+        self.focus_set()
+
+    def _set_button_state(self, new_mode):
+        if new_mode:
+            self.add_btn.configure(state="normal")
+            self.update_btn.configure(state="disabled")
+            self.delete_btn.configure(state="disabled")
+        else:
+            self.add_btn.configure(state="disabled")
+            self.update_btn.configure(state="normal")
+            self.delete_btn.configure(state="normal")
+
+    # ======================================================
+    # VALIDATION
     # ======================================================
 
     def _parse_rate(self):
@@ -129,6 +168,10 @@ class EmployeesTab(ttk.Frame):
                 "Hourly rate must be a positive number.\nExample: 8 or 10.5"
             )
             return None
+
+    # ======================================================
+    # ACTIONS
+    # ======================================================
 
     def _add(self):
         rate = self._parse_rate()
@@ -148,6 +191,8 @@ class EmployeesTab(ttk.Frame):
         )
 
         self._load()
+        self._new_employee_mode()
+
         if self.on_change:
             self.on_change()
 
@@ -169,6 +214,7 @@ class EmployeesTab(ttk.Frame):
         )
 
         self._load()
+
         if self.on_change:
             self.on_change()
 
@@ -180,14 +226,8 @@ class EmployeesTab(ttk.Frame):
             return
 
         self.db.delete_employee(self.selected_id)
-        self.selected_id = None
         self._load()
-
-        self.name_var.set("")
-        self.rate_var.set("")
-        self.bank_var.set("")
-        self.iban_var.set("")
-        self.bic_var.set("")
+        self._new_employee_mode()
 
         if self.on_change:
             self.on_change()
