@@ -99,17 +99,24 @@ class EmployeesTab(ttk.Frame):
 
     def _on_tree_click(self, event):
         """Обработка клика по таблице - сброс выделения при клике на пустое место"""
-        # Используем after для выполнения после TreeviewSelect
-        self.after(10, lambda: self._check_empty_click(event))
-    
-    def _check_empty_click(self, event):
-        """Проверка клика на пустом месте с задержкой"""
         row_id = self.tree.identify_row(event.y)
         
-        # Если клик не на строке и нет выделения - переключаем в режим добавления
-        if not row_id and not self.tree.selection():
-            self._clear_selection()
-            self._set_button_state(new_mode=True)
+        # Если клик не на строке - принудительно сбрасываем выделение
+        if not row_id:
+            # Сначала сбрасываем выделение
+            self.tree.selection_remove(self.tree.selection())
+            # Затем очищаем форму с задержкой
+            self.after(50, self._force_clear)
+    
+    def _force_clear(self):
+        """Принудительная очистка формы"""
+        self.selected_id = None
+        self.name_var.set("")
+        self.rate_var.set("")
+        self.bank_var.set("")
+        self.iban_var.set("")
+        self.bic_var.set("")
+        self._set_button_state(new_mode=True)
 
     def _clear_selection(self):
         self.tree.selection_set(())
