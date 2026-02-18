@@ -87,6 +87,74 @@ def setup_styles(root):
             ("disabled", COLORS["disabled_text"]),
         ],
     )
+    
+    # Accent Button (синяя)
+    style.configure(
+        "Accent.TButton",
+        padding=(12, 6),
+        font=("Segoe UI", 10, "bold"),
+        background=COLORS["accent"],
+        foreground="white",
+    )
+    
+    style.map(
+        "Accent.TButton",
+        background=[
+            ("active", COLORS["accent_hover"]),
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+    )
+    
+    # Success Button (зелёная)
+    style.configure(
+        "Success.TButton",
+        padding=(12, 6),
+        font=("Segoe UI", 10, "bold"),
+        background=COLORS["positive"],
+        foreground="white",
+    )
+    
+    style.map(
+        "Success.TButton",
+        background=[
+            ("active", "#28A03C"),
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+    )
+    
+    # Warning Button (оранжевая)
+    style.configure(
+        "Warning.TButton",
+        padding=(12, 6),
+        font=("Segoe UI", 10, "bold"),
+        background=COLORS["warning"],
+        foreground="white",
+    )
+    
+    style.map(
+        "Warning.TButton",
+        background=[
+            ("active", "#D67D00"),
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+    )
+    
+    # Danger Button (красная)
+    style.configure(
+        "Danger.TButton",
+        padding=(12, 6),
+        font=("Segoe UI", 10, "bold"),
+        background=COLORS["negative"],
+        foreground="white",
+    )
+    
+    style.map(
+        "Danger.TButton",
+        background=[
+            ("active", "#C82828"),
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+    )
 
     # ---------- Treeview ----------
     style.configure(

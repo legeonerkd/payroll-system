@@ -74,16 +74,16 @@ class EmployeesTab(ttk.Frame):
         btns = ttk.Frame(form)
         btns.grid(row=5, column=0, columnspan=2, pady=12, sticky="ew")
 
-        self.new_btn = ttk.Button(btns, text="Add New", command=self._new_employee_mode)
+        self.new_btn = ttk.Button(btns, text="Add New", command=self._new_employee_mode, style="Accent.TButton")
         self.new_btn.pack(fill="x", pady=3)
 
-        self.add_btn = ttk.Button(btns, text="Add", command=self._add)
+        self.add_btn = ttk.Button(btns, text="Add", command=self._add, style="Success.TButton")
         self.add_btn.pack(fill="x", pady=3)
 
-        self.update_btn = ttk.Button(btns, text="Update", command=self._update)
+        self.update_btn = ttk.Button(btns, text="Update", command=self._update, style="Warning.TButton")
         self.update_btn.pack(fill="x", pady=3)
 
-        self.delete_btn = ttk.Button(btns, text="Delete", command=self._delete)
+        self.delete_btn = ttk.Button(btns, text="Delete", command=self._delete, style="Danger.TButton")
         self.delete_btn.pack(fill="x", pady=3)
 
         self._set_button_state(new_mode=True)
@@ -99,14 +99,17 @@ class EmployeesTab(ttk.Frame):
 
     def _on_tree_click(self, event):
         """Обработка клика по таблице - сброс выделения при клике на пустое место"""
+        # Проверяем, на что кликнули
+        region = self.tree.identify_region(event.x, event.y)
         row_id = self.tree.identify_row(event.y)
         
-        # Если клик не на строке - принудительно сбрасываем выделение
-        if not row_id:
-            # Сначала сбрасываем выделение
-            self.tree.selection_remove(self.tree.selection())
-            # Затем очищаем форму с задержкой
-            self.after(50, self._force_clear)
+        # Если клик на пустом месте (не на строке и не на заголовке)
+        if region == "nothing" or (region == "cell" and not row_id):
+            # Принудительно сбрасываем выделение
+            for item in self.tree.selection():
+                self.tree.selection_remove(item)
+            # Очищаем форму
+            self._force_clear()
     
     def _force_clear(self):
         """Принудительная очистка формы"""
