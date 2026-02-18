@@ -89,6 +89,7 @@ class EmployeesTab(ttk.Frame):
 
         # bind только после создания кнопок
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Button-1>", self._on_tree_click)
 
 
     # ======================================================
@@ -96,17 +97,13 @@ class EmployeesTab(ttk.Frame):
     # ======================================================
 
     def _on_tree_click(self, event):
+        """Обработка клика по таблице - сброс выделения при клике на пустое место"""
         row_id = self.tree.identify_row(event.y)
-
-        if row_id:
-        # Проверяем реальные границы строки
-            bbox = self.tree.bbox(row_id)
-
-        # Если bbox пустой — значит клик вне строки
-            if not bbox:
-                self._clear_selection()
-        else:
+        
+        # Если клик не на строке - сбрасываем выделение
+        if not row_id:
             self._clear_selection()
+            self._set_button_state(new_mode=True)
 
     def _clear_selection(self):
         self.tree.selection_set(())
