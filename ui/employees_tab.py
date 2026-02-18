@@ -140,11 +140,11 @@ class EmployeesTab(ttk.Frame):
         selected = self.tree.selection()
 
         if not selected:
+            self._set_button_state(new_mode=True)
             return
 
         emp_id = int(selected[0])
         r = next(e for e in self.db.get_employees() if e["id"] == emp_id)
-        print("SELECT EVENT")
 
         self.selected_id = emp_id
         self.name_var.set(r["name"])
@@ -152,8 +152,9 @@ class EmployeesTab(ttk.Frame):
         self.bank_var.set(r["bank"] or "")
         self.iban_var.set(r["iban"] or "")
         self.bic_var.set(r["bic"] or "")
-
         
+        # Переключаем в режим редактирования
+        self._set_button_state(new_mode=False)
 
 
     def _clear_form(self):
