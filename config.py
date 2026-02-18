@@ -3,7 +3,7 @@ import os
 
 # ===== App Info =====
 APP_NAME = "Payroll System"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.7.0"
 
 # ===== Rates =====
 FIXED_RATE = 8  # €/hour
