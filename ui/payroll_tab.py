@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
 
 from tkcalendar import DateEntry
-from services.report_service import preview_payroll_pdf
+from services.report_service import generate_payroll_pdf
 from config import FIXED_RATE
 
 DEFAULT_HOURS = 10.0
@@ -69,6 +69,8 @@ class PayrollTab(ttk.Frame):
         ttk.Button(left, text="Preview PDF", command=self._preview_pdf)\
             .pack(fill="x", pady=(18, 4))
         ttk.Button(left, text="Save PDF", command=self._save_pdf)\
+            .pack(fill="x", pady=4)
+        ttk.Button(left, text="Print PDF", command=self._print_pdf)\
             .pack(fill="x")
 
         # ---------- RIGHT ----------
@@ -213,25 +215,33 @@ class PayrollTab(ttk.Frame):
     # ======================================================
 
     def _preview_pdf(self):
+        """Просмотр PDF"""
         try:
-            self._call_pdf()
+            self._call_pdf(action="preview")
         except Exception as e:
-            messagebox.showerror("PDF", str(e))
+            messagebox.showerror("PDF Preview", str(e))
 
     def _save_pdf(self):
+        """Сохранение PDF в папку по периоду"""
         try:
-            path = filedialog.asksaveasfilename(
-                defaultextension=".pdf",
-                filetypes=[("PDF files", "*.pdf")],
-            )
-            if not path:
-                return
-            self._call_pdf(save_path=path)
-            messagebox.showinfo("PDF", "PDF saved successfully")
+            pdf_path = self._call_pdf(action="save")
+            messagebox.showinfo("PDF Saved", f"PDF saved to:\n{pdf_path}")
         except Exception as e:
-            messagebox.showerror("PDF", str(e))
+            messagebox.showerror("PDF Save", str(e))
+    
+    def _print_pdf(self):
+        """Печать PDF"""
+        try:
+            self._call_pdf(action="print")
+            messagebox.showinfo("PDF Print", "PDF sent to printer")
+        except Exception as e:
+            messagebox.showerror("PDF Print", str(e))
 
-    def _call_pdf(self, save_path=None):
+    def _call_pdf(self, action="preview"):
+        """
+        Генерирует PDF с указанным действием
+        action: "preview", "save", "print"
+        """
         name = self.employee_cb.get()
         if not name:
             raise ValueError("Employee not selected")
@@ -243,7 +253,7 @@ class PayrollTab(ttk.Frame):
             date, day, hours = self.tree.item(iid)["values"]
             rows.append((date, day, hours))
 
-        preview_payroll_pdf(
+        pdf_path = generate_payroll_pdf(
             employee_name=emp["name"],
             employee_rate=emp["rate"],
             rows=rows,
@@ -255,4 +265,7 @@ class PayrollTab(ttk.Frame):
             bank_name=emp["bank"] if "bank" in emp.keys() else None,
             iban=emp["iban"] if "iban" in emp.keys() else None,
             bic=emp["bic"] if "bic" in emp.keys() else None,
+            action=action
         )
+        
+        return pdf_path

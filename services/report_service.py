@@ -8,14 +8,40 @@ import tempfile
 import os
 import sys
 import subprocess
+from pathlib import Path
 from config import FIXED_RATE
+
+
+# ======================================================
+# HELPERS - FILE NAMING
+# ======================================================
+
+def _get_payroll_directory(period_from: str) -> Path:
+    """Создаёт и возвращает директорию для сохранения PDF по периоду"""
+    # Извлекаем год-месяц из даты (формат: DD-MM-YYYY)
+    parts = period_from.split("-")
+    year_month = f"{parts[2]}-{parts[1]}"  # YYYY-MM
+    
+    # Путь к папке Documents/PayrollSystem/Payroll/YYYY-MM/
+    base_dir = Path.home() / "Documents" / "PayrollSystem" / "Payroll" / year_month
+    base_dir.mkdir(parents=True, exist_ok=True)
+    
+    return base_dir
+
+
+def _generate_filename(employee_name: str, rate_mode: str, rate: float) -> str:
+    """Генерирует имя файла в зависимости от типа ставки"""
+    if rate_mode == "fixed":
+        return f"{employee_name}_Fixed_{FIXED_RATE}€h.pdf"
+    else:
+        return f"{employee_name}_Custom_{rate:.2f}€h.pdf"
 
 
 # ======================================================
 # PUBLIC API — FROM PAYROLL TAB
 # ======================================================
 
-def preview_payroll_pdf(
+def generate_payroll_pdf(
     employee_name: str,
     employee_rate: float,
     rows: list,
@@ -27,7 +53,19 @@ def preview_payroll_pdf(
     bank_name: str | None,
     iban: str | None,
     bic: str | None,
-):
+    action: str = "preview"  # "preview", "save", "print"
+) -> str:
+    """
+    Генерирует PDF и выполняет действие
+    
+    Args:
+        action: "preview" - открыть для просмотра
+                "save" - сохранить в папку по периоду
+                "print" - отправить на печать
+    
+    Returns:
+        Путь к созданному PDF файлу
+    """
     rate = FIXED_RATE if rate_mode == "fixed" else float(employee_rate)
 
     parsed_rows = []
@@ -48,7 +86,20 @@ def preview_payroll_pdf(
             f"{amount:.2f} €"
         ))
 
-    _render_pdf(
+    # Определяем путь сохранения
+    if action == "save":
+        payroll_dir = _get_payroll_directory(period_from)
+        filename = _generate_filename(employee_name, rate_mode, rate)
+        pdf_path = payroll_dir / filename
+    else:
+        # Для просмотра и печати используем временную папку
+        filename = _generate_filename(employee_name, rate_mode, rate)
+        pdf_path = Path(tempfile.gettempdir()) / filename
+
+    pdf_path_str = str(pdf_path)
+
+    _render_pdf_to_file(
+        path=pdf_path_str,
         employee_name=employee_name,
         period_from=period_from,
         period_to=period_to,
@@ -62,6 +113,21 @@ def preview_payroll_pdf(
         utilities=float(utilities) if utilities else None,
         rental=float(rental) if rental else None,
     )
+
+    # Выполняем действие
+    if action == "preview":
+        _open_file(pdf_path_str)
+    elif action == "print":
+        _print_file(pdf_path_str)
+    # Для "save" просто возвращаем путь
+
+    return pdf_path_str
+
+
+# Обратная совместимость
+def preview_payroll_pdf(*args, **kwargs):
+    """Устаревшая функция - используйте generate_payroll_pdf"""
+    return generate_payroll_pdf(*args, **kwargs, action="preview")
 
 
 # ======================================================
@@ -91,7 +157,11 @@ def preview_payroll_pdf_from_history(payroll, days):
             f"{amount:.2f} €"
         ))
 
-    _render_pdf(
+    # Для истории всегда используем временный файл для просмотра
+    pdf_path = Path(tempfile.gettempdir()) / f"Payroll_{payroll['name']}.pdf"
+    
+    _render_pdf_to_file(
+        path=str(pdf_path),
         employee_name=payroll["name"],
         period_from=payroll["period_from"],
         period_to=payroll["period_to"],
@@ -105,13 +175,16 @@ def preview_payroll_pdf_from_history(payroll, days):
         utilities=payroll["utilities"],
         rental=payroll["rental"],
     )
+    
+    _open_file(str(pdf_path))
 
 
 # ======================================================
 # CORE PDF RENDER (FINAL)
 # ======================================================
 
-def _render_pdf(
+def _render_pdf_to_file(
+    path,
     employee_name,
     period_from,
     period_to,
@@ -125,11 +198,6 @@ def _render_pdf(
     utilities,
     rental
 ):
-    path = os.path.join(
-        tempfile.gettempdir(),
-        f"Payroll_{employee_name}.pdf"
-    )
-
     c = canvas.Canvas(path, pagesize=A4)
     width, height = A4
     y = height - 20 * mm
@@ -240,18 +308,31 @@ def _render_pdf(
     c.drawString(120 * mm, y, f"Date: {created_at}")
 
     c.save()
-    _open_file(path)
 
 
 # ======================================================
-# OPEN FILE
+# FILE OPERATIONS
 # ======================================================
 
 def _open_file(path):
+    """Открыть файл для просмотра"""
     if sys.platform.startswith("win"):
         os.startfile(path)
     elif sys.platform.startswith("darwin"):
         subprocess.call(["open", path])
     else:
         subprocess.call(["xdg-open", path])
+
+
+def _print_file(path):
+    """Отправить файл на печать"""
+    if sys.platform.startswith("win"):
+        # Windows - печать через ShellExecute
+        os.startfile(path, "print")
+    elif sys.platform.startswith("darwin"):
+        # macOS
+        subprocess.call(["lpr", path])
+    else:
+        # Linux
+        subprocess.call(["lpr", path])
 
