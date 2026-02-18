@@ -26,6 +26,7 @@ class EmployeesTab(ttk.Frame):
     def _build_ui(self):
         self.columnconfigure(0, weight=3)
         self.columnconfigure(1, weight=2)
+        self.rowconfigure(0, weight=1)  # Растягиваем строку на всю высоту
 
         # ---------- TABLE ----------
         table_frame = ttk.Frame(self)
@@ -34,8 +35,8 @@ class EmployeesTab(ttk.Frame):
         self.tree = ttk.Treeview(
             table_frame,
             columns=("name", "rate", "bank", "iban", "bic"),
-            show="headings",
-            height=18
+            show="headings"
+            # Убрали height=18, чтобы таблица растягивалась
         )
 
         self.tree.heading("name", text="Name")
@@ -89,7 +90,7 @@ class EmployeesTab(ttk.Frame):
 
         # bind только после создания кнопок
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        self.tree.bind("<Button-1>", self._on_tree_click)
+        self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
 
     # ======================================================
@@ -98,10 +99,15 @@ class EmployeesTab(ttk.Frame):
 
     def _on_tree_click(self, event):
         """Обработка клика по таблице - сброс выделения при клике на пустое место"""
+        # Используем after для выполнения после TreeviewSelect
+        self.after(10, lambda: self._check_empty_click(event))
+    
+    def _check_empty_click(self, event):
+        """Проверка клика на пустом месте с задержкой"""
         row_id = self.tree.identify_row(event.y)
         
-        # Если клик не на строке - сбрасываем выделение
-        if not row_id:
+        # Если клик не на строке и нет выделения - переключаем в режим добавления
+        if not row_id and not self.tree.selection():
             self._clear_selection()
             self._set_button_state(new_mode=True)
 
