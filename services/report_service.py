@@ -32,11 +32,13 @@ def preview_payroll_pdf(
 
     parsed_rows = []
     gross = 0.0
+    total_hours = 0.0
 
     for date, day, hours in rows:
         h = float(hours) if hours else 0.0
         amount = h * rate
         gross += amount
+        total_hours += h
 
         parsed_rows.append((
             date,
@@ -56,6 +58,7 @@ def preview_payroll_pdf(
         bic=bic,
         rows=parsed_rows,
         gross=gross,
+        total_hours=total_hours,
         utilities=float(utilities) if utilities else None,
         rental=float(rental) if rental else None,
     )
@@ -70,11 +73,13 @@ def preview_payroll_pdf_from_history(payroll, days):
 
     parsed_rows = []
     gross = 0.0
+    total_hours = 0.0
 
     for d in days:
         h = d["hours"]
         amount = h * rate
         gross += amount
+        total_hours += h
 
         day_name = datetime.strptime(d["work_date"], "%d-%m-%Y").strftime("%A")
 
@@ -96,6 +101,7 @@ def preview_payroll_pdf_from_history(payroll, days):
         bic=payroll["bic"],
         rows=parsed_rows,
         gross=gross,
+        total_hours=total_hours,
         utilities=payroll["utilities"],
         rental=payroll["rental"],
     )
@@ -115,6 +121,7 @@ def _render_pdf(
     bic,
     rows,
     gross,
+    total_hours,
     utilities,
     rental
 ):
@@ -202,6 +209,8 @@ def _render_pdf(
     net = gross - (utilities or 0) - (rental or 0)
 
     c.setFont("Helvetica", 10)
+    c.drawString(20 * mm, y, f"Total hours: {total_hours:.1f} h")
+    y -= 6 * mm
     c.drawString(20 * mm, y, f"Gross amount: {gross:.2f} €")
     y -= 6 * mm
 
