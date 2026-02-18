@@ -20,6 +20,12 @@ class PayrollApp(tk.Tk):
         self.geometry("1000x650")
         self.minsize(900, 600)
         self.configure(cursor="arrow")
+        
+        # ---------- ICON ----------
+        try:
+            self.iconbitmap("icon.ico")
+        except:
+            pass  # Если иконка не найдена, продолжаем без неё
 
         # ---------- STYLES ----------
         setup_styles(self)
