@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 # ===== App Info =====
 APP_NAME = "Payroll System"
@@ -8,5 +9,9 @@ APP_VERSION = "1.5.0"
 FIXED_RATE = 8  # €/hour
 
 # ===== Paths =====
-BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "database" / "salary.db"
+# Используем LOCALAPPDATA для хранения БД (работает и в EXE)
+LOCAL_APPDATA = os.getenv("LOCALAPPDATA")
+APP_DATA_DIR = Path(LOCAL_APPDATA) / "PayrollSystem"
+APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DATABASE_PATH = APP_DATA_DIR / "payroll.db"
