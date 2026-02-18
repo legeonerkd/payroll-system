@@ -8,8 +8,7 @@ import tempfile
 import os
 import sys
 import subprocess
-
-FIXED_RATE = 8.0
+from config import FIXED_RATE
 
 
 # ======================================================

@@ -52,12 +52,11 @@ class EmployeesTab(ttk.Frame):
 
         self.tree.pack(fill="both", expand=True)
 
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        self.tree.bind("<Button-1>", self._on_tree_click)
-
         # ---------- FORM ----------
         form = ttk.LabelFrame(self, text="Employee details")
         form.grid(row=0, column=1, sticky="nsew", padx=12, pady=12)
+
+        form.columnconfigure(1, weight=1)
 
         def row(label, var, r):
             ttk.Label(form, text=label).grid(row=r, column=0, sticky="w", pady=6)
@@ -69,8 +68,6 @@ class EmployeesTab(ttk.Frame):
         row("Bank (optional)", self.bank_var, 2)
         row("IBAN (optional)", self.iban_var, 3)
         row("BIC (optional)", self.bic_var, 4)
-
-        form.columnconfigure(1, weight=1)
 
         # ---------- BUTTONS ----------
         btns = ttk.Frame(form)
@@ -90,14 +87,37 @@ class EmployeesTab(ttk.Frame):
 
         self._set_button_state(new_mode=True)
 
+        # bind только после создания кнопок
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
+
     # ======================================================
     # TABLE CLICK HANDLING
     # ======================================================
 
     def _on_tree_click(self, event):
-        item = self.tree.identify_row(event.y)
-        if not item:
-            self._new_employee_mode()
+        row_id = self.tree.identify_row(event.y)
+
+        if row_id:
+        # Проверяем реальные границы строки
+            bbox = self.tree.bbox(row_id)
+
+        # Если bbox пустой — значит клик вне строки
+            if not bbox:
+                self._clear_selection()
+        else:
+            self._clear_selection()
+
+    def _clear_selection(self):
+        self.tree.selection_set(())
+        self.selected_id = None
+
+        self.name_var.set("")
+        self.rate_var.set("")
+        self.bank_var.set("")
+        self.iban_var.set("")
+        self.bic_var.set("")
+
 
     # ======================================================
     # DATA
@@ -119,13 +139,15 @@ class EmployeesTab(ttk.Frame):
                 )
             )
 
-    def _on_select(self, _):
-        sel = self.tree.selection()
-        if not sel:
+    def _on_select(self, event):
+        selected = self.tree.selection()
+
+        if not selected:
             return
 
-        emp_id = int(sel[0])
+        emp_id = int(selected[0])
         r = next(e for e in self.db.get_employees() if e["id"] == emp_id)
+        print("SELECT EVENT")
 
         self.selected_id = emp_id
         self.name_var.set(r["name"])
@@ -134,7 +156,15 @@ class EmployeesTab(ttk.Frame):
         self.iban_var.set(r["iban"] or "")
         self.bic_var.set(r["bic"] or "")
 
-        self._set_button_state(new_mode=False)
+        
+
+
+    def _clear_form(self):
+        self.name_var.set("")
+        self.rate_var.set("")
+        self.bank_var.set("")
+        self.iban_var.set("")
+        self.bic_var.set("")
 
     # ======================================================
     # MODES

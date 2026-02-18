@@ -2,6 +2,12 @@
 __pycache__/
 *.pyc
 *.pyo
+venv/
+env/
+.venv/
+
+# Legacy files
+payroll_legacy.py
 
 # PyInstaller
 build/
@@ -18,3 +24,13 @@ Thumbs.db
 # Local data
 salary.db
 Output/
+Payroll/
+*.db
+backups/
+
+# IDE
+.vscode/
+.idea/
+
+# Large files
+structure.txt

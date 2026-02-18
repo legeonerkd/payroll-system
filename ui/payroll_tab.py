@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 
 from tkcalendar import DateEntry
 from services.report_service import preview_payroll_pdf
+from config import FIXED_RATE
 
-FIXED_RATE = 8.0
 DEFAULT_HOURS = 10.0
 HOUR_STEP = 0.5
 

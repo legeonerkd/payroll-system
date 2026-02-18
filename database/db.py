@@ -1,11 +1,10 @@
+from config import DATABASE_PATH
 import sqlite3
-from pathlib import Path
 
 
 class Database:
-    def __init__(self, db_path: str | Path = "salary.db"):
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+    def __init__(self):
+        self.conn = sqlite3.connect(DATABASE_PATH)
         self.conn.row_factory = sqlite3.Row
         self.cur = self.conn.cursor()
         self._init_db()
@@ -14,22 +13,18 @@ class Database:
     # INIT
     # ==================================================
     def _init_db(self):
-        self.cur.execute(
-            """
+        self.cur.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 rate REAL NOT NULL,
-                has_bank_account INTEGER DEFAULT 0,
-                bank_name TEXT,
+                bank TEXT,
                 iban TEXT,
                 bic TEXT
             )
-            """
-        )
+        """)
 
-        self.cur.execute(
-            """
+        self.cur.execute("""
             CREATE TABLE IF NOT EXISTS work_hours (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 employee_id INTEGER NOT NULL,
@@ -38,10 +33,10 @@ class Database:
                 UNIQUE(employee_id, work_date),
                 FOREIGN KEY(employee_id) REFERENCES employees(id)
             )
-            """
-        )
+        """)
 
         self.conn.commit()
+
 
     # ==================================================
     # EMPLOYEES

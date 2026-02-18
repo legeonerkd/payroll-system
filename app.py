@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import os
 
-from core.database import Database
+from database.db import Database
 from core.version import APP_NAME, APP_VERSION
 
 from ui.styles import setup_styles
@@ -30,7 +30,8 @@ class PayrollApp(tk.Tk):
         db_path = os.path.join(db_dir, "payroll.db")
         os.makedirs(db_dir, exist_ok=True)
 
-        self.db = Database(db_path)
+        self.db = Database()
+
 
         # ---------- NOTEBOOK ----------
         notebook = ttk.Notebook(self)
