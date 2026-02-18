@@ -93,26 +93,22 @@ class EmployeesTab(ttk.Frame):
 
         # bind только после создания кнопок
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
+        # Правая кнопка мыши - сброс выделения
+        self.tree.bind("<Button-3>", self._on_right_click)
 
 
     # ======================================================
     # TABLE CLICK HANDLING
     # ======================================================
 
-    def _on_tree_click(self, event):
-        """Обработка клика по таблице - сброс выделения при клике на пустое место"""
-        # Проверяем, на что кликнули
-        region = self.tree.identify_region(event.x, event.y)
-        row_id = self.tree.identify_row(event.y)
-        
-        # Если клик на пустом месте (не на строке и не на заголовке)
-        if region == "nothing" or (region == "cell" and not row_id):
-            # Принудительно сбрасываем выделение
-            for item in self.tree.selection():
-                self.tree.selection_remove(item)
-            # Очищаем форму
-            self._force_clear()
+    def _on_right_click(self, event):
+        """Правая кнопка мыши - сброс выделения"""
+        # Принудительно сбрасываем выделение
+        for item in self.tree.selection():
+            self.tree.selection_remove(item)
+        # Очищаем форму
+        self._force_clear()
+        return "break"  # Предотвращаем стандартное контекстное меню
     
     def _on_frame_click(self, event):
         """Обработка клика по фрейму (вне таблицы)"""
