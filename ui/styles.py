@@ -1,22 +1,29 @@
 from tkinter import ttk
 
 COLORS = {
-    # Backgrounds
-    "bg": "#F4F6F8",
-    "card": "#FFFFFF",
-    "border": "#DADDE1",
+    # Backgrounds (Windows 11 style)
+    "bg": "#f4f6f8",
+    "card": "#ffffff",
+    "border": "#dcdcdc",
+    "zebra_odd": "#f9f9f9",
+    "zebra_even": "#ffffff",
 
     # Text
     "text": "#212529",
     "text_secondary": "#6C757D",
     "muted": "#6C757D",
 
-    # Accents
-    "accent": "#2C7BE5",
-    "accent_hover": "#1C6ED5",
-    "positive": "#2FB344",
-    "negative": "#E03131",
-    "warning": "#F08C00",
+    # Accents (Modern palette)
+    "accent": "#2563eb",      # Синий
+    "accent_hover": "#1d4ed8",
+    "positive": "#16a34a",    # Зелёный
+    "positive_hover": "#15803d",
+    "negative": "#dc2626",    # Красный
+    "negative_hover": "#b91c1c",
+    "warning": "#ea580c",     # Оранжевый
+    "warning_hover": "#c2410c",
+    "neutral": "#64748b",     # Серый
+    "neutral_hover": "#475569",
 
     # Disabled
     "disabled_bg": "#E9ECEF",
@@ -117,7 +124,7 @@ def setup_styles(root):
     style.map(
         "Success.TButton",
         background=[
-            ("active", "#28A03C"),
+            ("active", COLORS["positive_hover"]),
             ("disabled", COLORS["disabled_bg"]),
         ],
     )
@@ -134,7 +141,7 @@ def setup_styles(root):
     style.map(
         "Warning.TButton",
         background=[
-            ("active", "#D67D00"),
+            ("active", COLORS["warning_hover"]),
             ("disabled", COLORS["disabled_bg"]),
         ],
     )
@@ -151,7 +158,24 @@ def setup_styles(root):
     style.map(
         "Danger.TButton",
         background=[
-            ("active", "#C82828"),
+            ("active", COLORS["negative_hover"]),
+            ("disabled", COLORS["disabled_bg"]),
+        ],
+    )
+    
+    # Neutral Button (серая)
+    style.configure(
+        "Neutral.TButton",
+        padding=(12, 6),
+        font=("Segoe UI", 10),
+        background=COLORS["neutral"],
+        foreground="white",
+    )
+    
+    style.map(
+        "Neutral.TButton",
+        background=[
+            ("active", COLORS["neutral_hover"]),
             ("disabled", COLORS["disabled_bg"]),
         ],
     )
