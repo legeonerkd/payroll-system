@@ -43,7 +43,7 @@ class PayrollApp(tk.Tk):
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.employees_tab = EmployeesTab(notebook, self.db, on_change=None)
+        self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._update_status)
         notebook.add(self.employees_tab, text="Employees")
 
         self.payroll_tab = PayrollTab(notebook, self.db)
@@ -59,6 +59,35 @@ class PayrollApp(tk.Tk):
             label="Payroll history",
             command=lambda: PayrollHistory(self, self.db)
         )
+
+        # ---------- STATUS BAR ----------
+        self.status_bar = ttk.Frame(self, relief="sunken", borderwidth=1)
+        self.status_bar.pack(side="bottom", fill="x")
+        
+        self.status_label = ttk.Label(
+            self.status_bar, 
+            text=f"Ready | Database: {db_path}",
+            font=("Segoe UI", 9),
+            foreground="#6C757D"
+        )
+        self.status_label.pack(side="left", padx=10, pady=4)
+        
+        # Счётчик сотрудников
+        self.employee_count_label = ttk.Label(
+            self.status_bar,
+            text="",
+            font=("Segoe UI", 9),
+            foreground="#6C757D"
+        )
+        self.employee_count_label.pack(side="right", padx=10, pady=4)
+        
+        self._update_status()
+
+    def _update_status(self):
+        """Обновление статус-бара"""
+        employees = self.db.get_employees()
+        count = len(employees)
+        self.employee_count_label.config(text=f"👥 Employees: {count}")
 
 
 if __name__ == "__main__":
