@@ -1,5 +1,7 @@
 from datetime import datetime
 from typing import Dict
+from config import FIXED_RATE
+
 
 from core.models import Employee, PayrollRow, PayrollSummary
 
@@ -54,7 +56,7 @@ def calculate_fixed_payroll(
     housing: float = 0.0,
     utilities: float = 0.0,
 ):
-    rate = 8.0
+    rate = FIXED_RATE
     rows = build_payroll_rows(hours_map, rate)
 
     total_hours = sum(r.hours for r in rows)
