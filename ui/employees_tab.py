@@ -29,11 +29,11 @@ class EmployeesTab(ttk.Frame):
         self.rowconfigure(0, weight=1)  # Растягиваем строку на всю высоту
 
         # ---------- TABLE ----------
-        table_frame = ttk.Frame(self)
-        table_frame.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
+        self.table_frame = ttk.Frame(self)
+        self.table_frame.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
 
         self.tree = ttk.Treeview(
-            table_frame,
+            self.table_frame,
             columns=("name", "rate", "bank", "iban", "bic"),
             show="headings"
             # Убрали height=18, чтобы таблица растягивалась
@@ -52,6 +52,9 @@ class EmployeesTab(ttk.Frame):
         self.tree.column("bic", width=120)
 
         self.tree.pack(fill="both", expand=True)
+        
+        # Привязываем событие клика к фрейму тоже
+        self.table_frame.bind("<Button-1>", self._on_frame_click)
 
         # ---------- FORM ----------
         form = ttk.LabelFrame(self, text="Employee details")
@@ -110,6 +113,13 @@ class EmployeesTab(ttk.Frame):
                 self.tree.selection_remove(item)
             # Очищаем форму
             self._force_clear()
+    
+    def _on_frame_click(self, event):
+        """Обработка клика по фрейму (вне таблицы)"""
+        # Сбрасываем выделение при клике на фрейм
+        for item in self.tree.selection():
+            self.tree.selection_remove(item)
+        self._force_clear()
     
     def _force_clear(self):
         """Принудительная очистка формы"""
