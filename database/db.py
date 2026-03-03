@@ -46,10 +46,17 @@ class Database:
             "SELECT * FROM employees ORDER BY name"
         ).fetchall()
 
-    def add_employee(self, name: str, rate: float):
+    def add_employee(self, name: str, rate: float, bank: str = None, iban: str = None, bic: str = None):
         self.cur.execute(
-            "INSERT INTO employees (name, rate) VALUES (?, ?)",
-            (name, rate),
+            "INSERT INTO employees (name, rate, bank, iban, bic) VALUES (?, ?, ?, ?, ?)",
+            (name, rate, bank, iban, bic),
+        )
+        self.conn.commit()
+
+    def update_employee(self, emp_id: int, name: str, rate: float, bank: str = None, iban: str = None, bic: str = None):
+        self.cur.execute(
+            "UPDATE employees SET name=?, rate=?, bank=?, iban=?, bic=? WHERE id=?",
+            (name, rate, bank, iban, bic, emp_id),
         )
         self.conn.commit()
 
