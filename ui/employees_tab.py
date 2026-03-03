@@ -337,6 +337,10 @@ class EmployeesTab(ttk.Frame):
         if rate is None:
             return
 
+        if not self.name_var.get().strip():
+            messagebox.showerror("Missing data", "Employee name is required.")
+            return
+
         self.db.update_employee(
             emp_id=self.selected_id,
             name=self.name_var.get().strip(),
@@ -347,6 +351,7 @@ class EmployeesTab(ttk.Frame):
         )
 
         self._load()
+        self._new_employee_mode()
 
         if self.on_change:
             self.on_change()
