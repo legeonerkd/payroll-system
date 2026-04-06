@@ -1,6 +1,6 @@
 [Setup]
 AppName=Payroll System
-AppVersion=1.8.1
+AppVersion=1.8.2
 AppPublisher=PayrollSystem Team
 AppPublisherURL=https://github.com/yourusername/PayrollSystem
 AppSupportURL=https://github.com/yourusername/PayrollSystem/issues
@@ -8,7 +8,7 @@ AppUpdatesURL=https://github.com/yourusername/PayrollSystem/releases
 DefaultDirName={localappdata}\Programs\PayrollSystem
 DefaultGroupName=Payroll System
 OutputDir=output
-OutputBaseFilename=PayrollSystem_v1.8.1_Setup
+OutputBaseFilename=PayrollSystem_v1.8.2_Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=lowest
