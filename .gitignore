@@ -34,3 +34,6 @@ backups/
 
 # Large files
 structure.txt
+
+# Plans and notes (not related to PayrollSystem)
+plans/
