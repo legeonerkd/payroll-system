@@ -238,6 +238,27 @@ def _render_pdf_to_file(
 
     # ---------- TABLE ----------
     table_data = [["Date", "Day", "Hours", "Hourly rate", "Amount"]] + list(rows)
+    
+    # Динамическое масштабирование в зависимости от количества строк
+    num_rows = len(rows)
+    
+    # Расчёт доступного пространства для таблицы (учитываем место для заголовка и итогов)
+    # y - текущая позиция, минус место для итогов (~60mm) и подписей (~40mm)
+    available_height = y - 100 * mm
+    
+    # Рассчитываем оптимальные параметры
+    if num_rows <= 15:
+        font_size = 9
+        padding_top = 4
+        padding_bottom = 4
+    elif num_rows <= 25:
+        font_size = 8
+        padding_top = 3
+        padding_bottom = 3
+    else:  # 26-31 день
+        font_size = 7
+        padding_top = 2
+        padding_bottom = 2
 
     table = Table(
         table_data,
@@ -249,13 +270,13 @@ def _render_pdf_to_file(
 
         # Header
         ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 9),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", font_size),
 
         # Body
-        ("FONT", (0, 1), (-1, -1), "Helvetica", 9),
+        ("FONT", (0, 1), (-1, -1), "Helvetica", font_size),
         ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), padding_top),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), padding_bottom),
     ])
 
     # Highlight Sundays

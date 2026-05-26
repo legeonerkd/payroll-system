@@ -23,13 +23,10 @@ def test_fixed_payroll_single_day():
 
     rows, summary = calculate_fixed_payroll(
         employee=employee,
-        hours_map={"2026-01-01": 8},
-        start_iso="2026-01-01",
-        end_iso="2026-01-01"
+        hours_map={"2026-01-01": 8}
     )
 
     assert summary.total_hours == 8
-    assert summary.rate == 8.0
     assert summary.gross_amount == 64.0
     assert summary.net_amount == 64.0
     assert len(rows) == 1
@@ -44,13 +41,27 @@ def test_fixed_payroll_multiple_days():
         hours_map={
             "2026-01-01": 8,
             "2026-01-02": 6
-        },
-        start_iso="2026-01-01",
-        end_iso="2026-01-02"
+        }
     )
 
     assert summary.total_hours == 14
     assert summary.gross_amount == 112.0
+
+
+def test_fixed_payroll_with_deductions():
+    employee = get_employee()
+
+    rows, summary = calculate_fixed_payroll(
+        employee=employee,
+        hours_map={"2026-01-01": 8},
+        housing=30.0,
+        utilities=15.0
+    )
+
+    assert summary.gross_amount == 64.0  # 8 hours * 8.0 rate
+    assert summary.housing_deduction == 30.0
+    assert summary.utilities_deduction == 15.0
+    assert summary.net_amount == 19.0  # 64 - 30 - 15
 
 
 # --------------------------------------------------
@@ -61,15 +72,14 @@ def test_custom_payroll_without_deductions():
 
     rows, summary = calculate_custom_payroll(
         employee=employee,
-        hours_map={"2026-01-01": 10},
-        start_iso="2026-01-01",
-        end_iso="2026-01-01",
-        rate=12.0
+        hours_map={"2026-01-01": 10}
     )
 
     assert summary.total_hours == 10
-    assert summary.gross_amount == 120.0
-    assert summary.net_amount == 120.0
+    assert summary.gross_amount == 150.0  # 10 hours * 15.0 rate
+    assert summary.net_amount == 150.0
+    assert summary.housing_deduction == 0.0
+    assert summary.utilities_deduction == 0.0
 
 
 def test_custom_payroll_with_deductions():
@@ -78,16 +88,14 @@ def test_custom_payroll_with_deductions():
     rows, summary = calculate_custom_payroll(
         employee=employee,
         hours_map={"2026-01-01": 10},
-        start_iso="2026-01-01",
-        end_iso="2026-01-01",
-        rate=12.0,
-        housing_deduction=20,
-        utilities_deduction=10
+        housing=20.0,
+        utilities=10.0
     )
 
-    assert summary.gross_amount == 120.0
-    assert summary.total_deductions == 30.0
-    assert summary.net_amount == 90.0
+    assert summary.gross_amount == 150.0  # 10 hours * 15.0 rate
+    assert summary.housing_deduction == 20.0
+    assert summary.utilities_deduction == 10.0
+    assert summary.net_amount == 120.0  # 150 - 20 - 10
 
 
 # --------------------------------------------------
@@ -98,10 +106,7 @@ def test_zero_hours():
 
     rows, summary = calculate_custom_payroll(
         employee=employee,
-        hours_map={},
-        start_iso="2026-01-01",
-        end_iso="2026-01-01",
-        rate=10.0
+        hours_map={}
     )
 
     assert summary.total_hours == 0

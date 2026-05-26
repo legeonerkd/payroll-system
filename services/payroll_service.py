@@ -78,7 +78,7 @@ def calculate_fixed_payroll(
 
 
 # ==================================================
-# CUSTOM RATE (EMPLOYEE) — ❌ NO DEDUCTIONS
+# CUSTOM RATE (EMPLOYEE) — ✅ DEDUCTIONS APPLY
 # ==================================================
 def calculate_custom_payroll(
     employee: Employee,
@@ -95,12 +95,16 @@ def calculate_custom_payroll(
     total_hours = sum(r.hours for r in rows)
     gross = round(sum(r.amount for r in rows), 2)
 
+    housing = round(housing, 2)
+    utilities = round(utilities, 2)
+    net = round(gross - housing - utilities, 2)
+
     summary = PayrollSummary(
         total_hours=total_hours,
         gross_amount=gross,
-        housing_deduction=0.0,
-        utilities_deduction=0.0,
-        net_amount=gross,
+        housing_deduction=housing,
+        utilities_deduction=utilities,
+        net_amount=net,
     )
 
     return rows, summary
