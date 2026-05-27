@@ -339,6 +339,9 @@ class PayrollTab(ttk.Frame):
     # ======================================================
 
     def _load_employees(self):
+        """Загрузка списка сотрудников в combobox"""
+        current_selection = self.employee_cb.get() if self.employee_cb.get() else None
+        
         self.employee_map.clear()
         names = []
 
@@ -347,8 +350,16 @@ class PayrollTab(ttk.Frame):
             names.append(e["name"])
 
         self.employee_cb["values"] = names
-        if names:
+        
+        # Пытаемся восстановить предыдущий выбор
+        if current_selection and current_selection in names:
+            self.employee_cb.set(current_selection)
+        elif names:
             self.employee_cb.current(0)
+    
+    def refresh_employees(self):
+        """Публичный метод для обновления списка сотрудников извне"""
+        self._load_employees()
 
     # ======================================================
     # PERIOD GENERATION
@@ -567,6 +578,9 @@ class PayrollTab(ttk.Frame):
         for iid in self.tree.get_children():
             date, day, hours = self.tree.item(iid)["values"]
             rows.append((date, day, hours))
+        
+        # Сохраняем часы в базу данных
+        self._save_hours_to_database(emp["id"])
 
         pdf_path = generate_payroll_pdf(
             employee_name=emp["name"],
@@ -584,3 +598,11 @@ class PayrollTab(ttk.Frame):
         )
 
         return pdf_path
+    
+    def _save_hours_to_database(self, emp_id: int):
+        """Сохранение часов в базу данных"""
+        if not self.days_data:
+            return
+        
+        # Сохраняем все отработанные часы
+        self.db.save_hours_batch(emp_id, self.days_data)

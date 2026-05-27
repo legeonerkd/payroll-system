@@ -9,6 +9,7 @@ from ui.styles import setup_styles
 from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
 from ui.payroll_history import PayrollHistory
+from ui.hours_export import HoursExportWindow
 
 
 class PayrollApp(tk.Tk):
@@ -43,7 +44,7 @@ class PayrollApp(tk.Tk):
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._update_status)
+        self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._on_employees_changed)
         notebook.add(self.employees_tab, text="Employees")
 
         self.payroll_tab = PayrollTab(notebook, self.db)
@@ -58,6 +59,13 @@ class PayrollApp(tk.Tk):
         history_menu.add_command(
             label="Payroll history",
             command=lambda: PayrollHistory(self, self.db)
+        )
+        
+        export_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Export", menu=export_menu)
+        export_menu.add_command(
+            label="Export work hours",
+            command=lambda: HoursExportWindow(self, self.db)
         )
 
         # ---------- STATUS BAR ----------
@@ -88,6 +96,11 @@ class PayrollApp(tk.Tk):
         employees = self.db.get_employees()
         count = len(employees)
         self.employee_count_label.config(text=f"👥 Employees: {count}")
+    
+    def _on_employees_changed(self):
+        """Обработчик изменений в списке сотрудников"""
+        self._update_status()
+        self.payroll_tab.refresh_employees()
 
 
 if __name__ == "__main__":
