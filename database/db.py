@@ -138,6 +138,51 @@ class Database:
             (emp_id, date, hours),
         )
         self.conn.commit()
+    
+    def save_hours_batch(self, emp_id: int, hours_dict: dict):
+        """
+        Сохранение нескольких записей часов за раз
+        hours_dict: {"YYYY-MM-DD": hours, ...}
+        """
+        for date, hours in hours_dict.items():
+            if hours > 0:  # Сохраняем только ненулевые значения
+                self.save_hours(emp_id, date, hours)
+    
+    def get_all_hours(self):
+        """Получить всю историю отработанных часов"""
+        return self.cur.execute(
+            """
+            SELECT 
+                e.name as employee_name,
+                w.work_date,
+                w.hours,
+                e.rate
+            FROM work_hours w
+            JOIN employees e ON w.employee_id = e.id
+            ORDER BY w.work_date DESC, e.name
+            """
+        ).fetchall()
+    
+    def export_hours_to_csv(self, filepath: str):
+        """Экспорт всей истории часов в CSV файл"""
+        import csv
+        
+        hours_data = self.get_all_hours()
+        
+        with open(filepath, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Employee', 'Date', 'Hours', 'Rate (€/h)', 'Amount (€)'])
+            
+            for row in hours_data:
+                employee_name = row['employee_name']
+                work_date = row['work_date']
+                hours = row['hours']
+                rate = row['rate']
+                amount = hours * rate
+                
+                writer.writerow([employee_name, work_date, hours, f"{rate:.2f}", f"{amount:.2f}"])
+        
+        return filepath
 
     # ==================================================
     # CLOSE
