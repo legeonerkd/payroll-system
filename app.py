@@ -10,6 +10,7 @@ from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
 from ui.payroll_history import PayrollHistory
 from ui.hours_export import HoursExportWindow
+from ui.excel_import import ExcelImportWindow
 
 
 class PayrollApp(tk.Tk):
@@ -54,18 +55,28 @@ class PayrollApp(tk.Tk):
         menubar = tk.Menu(self)
         self.config(menu=menubar)
 
-        history_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="History", menu=history_menu)
-        history_menu.add_command(
-            label="Payroll history",
-            command=lambda: PayrollHistory(self, self.db)
+        # Import menu
+        import_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Import", menu=import_menu)
+        import_menu.add_command(
+            label="Import from Excel",
+            command=lambda: ExcelImportWindow(self, self.db)
         )
         
+        # Export menu
         export_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Export", menu=export_menu)
         export_menu.add_command(
             label="Export work hours",
             command=lambda: HoursExportWindow(self, self.db)
+        )
+        
+        # History menu
+        history_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="History", menu=history_menu)
+        history_menu.add_command(
+            label="Payroll history",
+            command=lambda: PayrollHistory(self, self.db)
         )
 
         # ---------- STATUS BAR ----------
