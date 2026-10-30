@@ -3,6 +3,11 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 import os
 from threading import Thread
+from queue import Queue, Empty
+from database.db import Database
+from core.validation import number
+from core.models import Employee
+from services.payroll_service import calculate_payroll
 
 from services.excel_import_service import (
     import_excel_file, 
@@ -10,6 +15,7 @@ from services.excel_import_service import (
     EmployeeData,
     get_import_summary
 )
+from services.excel_import_service import process_import
 from services.report_service import generate_payroll_pdf
 from config import FIXED_RATE
 
@@ -25,6 +31,9 @@ class ExcelImportWindow(tk.Toplevel):
         
         self.imported_employees = []
         self.selected_file = None
+        self._events = Queue()
+        self._running = False
+        self.protocol('WM_DELETE_WINDOW',self._close)
         
         self._build_ui()
     
@@ -235,6 +244,8 @@ class ExcelImportWindow(tk.Toplevel):
             text="Update existing employees (rate, bank info)",
             variable=self.update_employees_var
         ).pack(anchor="w", pady=3)
+        for variable in (self.rate_mode,self.utilities_var,self.rental_var):
+            variable.trace_add('write',lambda *args:self._display_preview())
     
     def _build_action_panel(self):
         """Панель действий"""
@@ -252,7 +263,7 @@ class ExcelImportWindow(tk.Toplevel):
         ttk.Button(
             panel,
             text="❌ Cancel",
-            command=self.destroy,
+            command=self._close,
             style="Neutral.TButton",
             width=12
         ).pack(side="right", padx=5)
@@ -269,10 +280,12 @@ class ExcelImportWindow(tk.Toplevel):
     
     def _browse_file(self):
         """Выбор Excel файла"""
+        if self._running:
+            return
         filepath = filedialog.askopenfilename(
             title="Select Excel File",
             filetypes=[
-                ("Excel files", "*.xlsx *.xls"),
+                ("Excel files", "*.xlsx"),
                 ("All files", "*.*")
             ]
         )
@@ -338,7 +351,14 @@ class ExcelImportWindow(tk.Toplevel):
         for idx, emp in enumerate(self.imported_employees):
             total_hours = emp.get_total_hours()
             rate = emp.rate
-            gross = total_hours * rate
+            try:
+                _,summary=calculate_payroll(Employee(0,emp.name,emp.rate),emp.hours_by_date,self.rate_mode.get(),
+                    utilities=self.utilities_var.get() or 0,housing=self.rental_var.get() or 0)
+                gross=summary.gross_amount
+                rate=FIXED_RATE if self.rate_mode.get()=='fixed' else emp.rate
+            except ValueError:
+                self.info_label.config(text='Enter valid, non-negative deductions',foreground='#dc2626')
+                return
             
             date_from, date_to = emp.get_date_range()
             period = f"{date_from} to {date_to}" if date_from else "N/A"
@@ -406,142 +426,68 @@ class ExcelImportWindow(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", f"Failed to create template:\n{str(e)}")
     
+    def _close(self):
+        if self._running:
+            messagebox.showinfo('Import running','Please wait for the batch to finish before closing this window.')
+            return
+        self.destroy()
+
     def _generate_payrolls(self):
-        """Генерация всех зарплатных ведомостей"""
-        if not self.imported_employees:
-            messagebox.showwarning("No Data", "No employees to process")
+        if self._running or not self.imported_employees:
             return
-        
-        # Подтверждение
-        result = messagebox.askyesno(
-            "Confirm Generation",
-            f"Generate payroll PDFs for {len(self.imported_employees)} employees?\n\n"
-            f"This may take some time.",
-            icon="question"
-        )
-        
-        if not result:
+        try:
+            options = dict(rate_mode=self.rate_mode.get(),
+                utilities=str(number(self.utilities_var.get() or 0,'Utilities deduction')),
+                rental=str(number(self.rental_var.get() or 0,'Rental deduction')),
+                save_to_db=self.save_to_db_var.get(),create_pdf=self.create_pdf_var.get(),
+                update_existing=self.update_employees_var.get())
+            if not options['save_to_db'] and not options['create_pdf']:
+                raise ValueError('Select saving hours or generating PDF files')
+        except ValueError as exc:
+            messagebox.showerror('Import settings',str(exc))
             return
-        
-        # Отключаем кнопку
-        self.generate_btn.config(state="disabled")
-        
-        # Запускаем генерацию в отдельном потоке
-        thread = Thread(target=self._generate_thread, daemon=True)
-        thread.start()
-    
-    def _generate_thread(self):
-        """Поток генерации PDF"""
-        rate_mode = self.rate_mode.get()
-        utilities = self.utilities_var.get() or "0"
-        rental = self.rental_var.get() or "0"
-        save_to_db = self.save_to_db_var.get()
-        create_pdf = self.create_pdf_var.get()
-        update_existing = self.update_employees_var.get()
-        
-        success_count = 0
-        error_count = 0
-        errors = []
-        
-        for idx, emp in enumerate(self.imported_employees, 1):
-            try:
-                self.progress_label.config(
-                    text=f"Processing {idx}/{len(self.imported_employees)}: {emp.name}..."
-                )
-                self.update()
-                
-                # Проверяем/создаём сотрудника в БД
-                db_employees = {e['name']: e for e in self.db.get_employees()}
-                
-                if emp.name in db_employees:
-                    # Сотрудник существует
-                    db_emp = db_employees[emp.name]
-                    emp_id = db_emp['id']
-                    
-                    if update_existing:
-                        # Обновляем данные
-                        self.db.update_employee(
-                            emp_id=emp_id,
-                            name=emp.name,
-                            rate=emp.rate,
-                            bank=emp.bank,
-                            iban=emp.iban,
-                            bic=emp.bic
-                        )
+        if not messagebox.askyesno('Confirm import',
+            f'Process {len(self.imported_employees)} employees?\nThe entire batch will be rolled back if any row fails.'):
+            return
+        self._running = True
+        self.grab_set()
+        self.generate_btn.config(state='disabled')
+        Thread(target=self._generate_thread,args=(self.db.path,tuple(self.imported_employees),options,self._events),daemon=False).start()
+        self.after(100,self._poll_import)
+
+    @staticmethod
+    def _generate_thread(db_path,employees,options,events):
+        db = None
+        try:
+            db = Database(db_path,create_backup=False)
+            result=process_import(db,employees,options,lambda i,n:events.put(('progress',(i,n))))
+            events.put(('done',result))
+        except Exception as exc:
+            events.put(('error',str(exc)))
+        finally:
+            if db is not None:
+                db.close()
+
+    def _poll_import(self):
+        try:
+            while True:
+                kind,payload=self._events.get_nowait()
+                if kind=='progress':
+                    self.progress_label.config(text=f'Processing {payload[0]}/{payload[1]}')
                 else:
-                    # Создаём нового сотрудника
-                    self.db.add_employee(
-                        name=emp.name,
-                        rate=emp.rate,
-                        bank=emp.bank,
-                        iban=emp.iban,
-                        bic=emp.bic
-                    )
-                    # Получаем ID
-                    db_employees = {e['name']: e for e in self.db.get_employees()}
-                    emp_id = db_employees[emp.name]['id']
-                
-                # Сохраняем часы в БД
-                if save_to_db:
-                    self.db.save_hours_batch(emp_id, emp.hours_by_date)
-                
-                # Генерируем PDF
-                if create_pdf:
-                    date_from, date_to = emp.get_date_range()
-                    
-                    # Формируем rows для PDF
-                    rows = []
-                    for date_str in sorted(emp.hours_by_date.keys()):
-                        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                        hours = emp.hours_by_date[date_str]
-                        rows.append((
-                            date_obj.strftime("%d-%m-%Y"),
-                            date_obj.strftime("%A"),
-                            f"{hours:.1f}"
-                        ))
-                    
-                    # Преобразуем даты для PDF
-                    date_from_obj = datetime.strptime(date_from, "%Y-%m-%d")
-                    date_to_obj = datetime.strptime(date_to, "%Y-%m-%d")
-                    
-                    generate_payroll_pdf(
-                        employee_name=emp.name,
-                        employee_rate=emp.rate,
-                        rows=rows,
-                        rate_mode=rate_mode,
-                        utilities=utilities,
-                        rental=rental,
-                        period_from=date_from_obj.strftime("%d-%m-%Y"),
-                        period_to=date_to_obj.strftime("%d-%m-%Y"),
-                        bank_name=emp.bank,
-                        iban=emp.iban,
-                        bic=emp.bic,
-                        action="save"
-                    )
-                
-                success_count += 1
-            
-            except Exception as e:
-                error_count += 1
-                errors.append(f"{emp.name}: {str(e)}")
-        
-        # Показываем результат
-        self.progress_label.config(
-            text=f"✅ Done: {success_count} successful, {error_count} errors"
-        )
-        
-        if errors:
-            error_msg = "\n".join(errors[:10])
-            if len(errors) > 10:
-                error_msg += f"\n... and {len(errors) - 10} more"
-            messagebox.showwarning(
-                "Generation Complete with Errors",
-                f"Successfully generated: {success_count}\nErrors: {error_count}\n\n{error_msg}"
-            )
-        else:
-            messagebox.showinfo(
-                "Success",
-                f"✅ Successfully generated {success_count} payroll PDFs!"
-            )
-        
-        self.generate_btn.config(state="normal")
+                    self._running=False
+                    self.grab_release()
+                    self.generate_btn.config(state='normal')
+                    if kind=='done':
+                        self.progress_label.config(text=f'Completed: {payload["employees"]} employees')
+                        callback=getattr(self.master,'_on_employees_changed',None)
+                        if callback:
+                            callback()
+                        messagebox.showinfo('Import complete',f'Processed {payload["employees"]} employees; created {len(payload["files"])} PDFs.')
+                    else:
+                        self.progress_label.config(text='Batch failed; database changes rolled back')
+                        messagebox.showerror('Import failed',payload)
+                    return
+        except Empty:
+            pass
+        self.after(100,self._poll_import)

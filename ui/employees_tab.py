@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from core.validation import employee_values
 
 
 class EmployeesTab(ttk.Frame):
@@ -119,7 +120,7 @@ class EmployeesTab(ttk.Frame):
         self.update_btn = ttk.Button(btns, text="✏️ Update", command=self._update, style="Warning.TButton")
         self.update_btn.grid(row=0, column=1, sticky="ew", padx=4)
 
-        self.delete_btn = ttk.Button(btns, text="🗑️ Delete", command=self._delete, style="Danger.TButton")
+        self.delete_btn = ttk.Button(btns, text="Archive", command=self._delete, style="Danger.TButton")
         self.delete_btn.grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
         self._set_button_state(new_mode=True)
@@ -291,9 +292,7 @@ class EmployeesTab(ttk.Frame):
     def _parse_rate(self):
         raw = self.rate_var.get().strip()
         try:
-            value = float(raw)
-            if value < 0:
-                raise ValueError
+            _, value = employee_values(self.name_var.get() or 'Employee', raw)
             return value
         except ValueError:
             messagebox.showerror(
@@ -363,8 +362,8 @@ class EmployeesTab(ttk.Frame):
         # Улучшенный confirmation dialog
         employee_name = self.name_var.get().strip()
         result = messagebox.askyesno(
-            "Delete Employee",
-            f"Are you sure you want to delete employee:\n\n{employee_name}\n\nThis action cannot be undone.",
+            "Archive Employee",
+            f"Archive employee:\n\n{employee_name}\n\nThey will be hidden from active lists. Hours and payroll history will be preserved.",
             icon="warning"
         )
         

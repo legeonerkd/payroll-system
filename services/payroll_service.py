@@ -1,110 +1,34 @@
 from datetime import datetime
-from typing import Dict
+from decimal import Decimal, ROUND_HALF_UP
 from config import FIXED_RATE
+from core.models import PayrollRow, PayrollSummary
+from core.validation import CENT, hours_map as validate_hours, number
 
 
-from core.models import Employee, PayrollRow, PayrollSummary
-
-
-# ==================================================
-# HELPERS
-# ==================================================
-def _weekday_name(date_str: str) -> str:
-    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
-
-
-def _date_ui(date_str: str) -> str:
-    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
-
-
-# ==================================================
-# ROW BUILDER
-# ==================================================
-def build_payroll_rows(
-    hours_map: Dict[str, float],
-    rate: float,
-):
-    rows: list[PayrollRow] = []
-
-    for date in sorted(hours_map.keys()):
-        hours = hours_map[date]
-        amount = round(hours * rate, 2)
-
-        rows.append(
-            PayrollRow(
-                date=date,
-                date_ui=_date_ui(date),
-                weekday=_weekday_name(date),
-                hours=hours,
-                rate=rate,
-                amount=amount,
-            )
-        )
-
+def build_payroll_rows(hours_map, rate):
+    rate = number(rate, 'Hourly rate', minimum=Decimal('0.01'))
+    rows = []
+    for day, hours in sorted(validate_hours(hours_map).items()):
+        d = datetime.strptime(day, '%Y-%m-%d')
+        amount = (Decimal(str(hours)) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+        rows.append(PayrollRow(day, d.strftime('%d.%m.%Y'), d.strftime('%A'), hours, float(rate), float(amount)))
     return rows
 
 
-# ==================================================
-# FIXED RATE (8 €/h) — ✅ DEDUCTIONS APPLY
-# ==================================================
-def calculate_fixed_payroll(
-    employee: Employee,
-    hours_map: Dict[str, float],
-    _start=None,
-    _end=None,
-    *,
-    housing: float = 0.0,
-    utilities: float = 0.0,
-):
-    rate = FIXED_RATE
-    rows = build_payroll_rows(hours_map, rate)
-
-    total_hours = sum(r.hours for r in rows)
-    gross = round(sum(r.amount for r in rows), 2)
-
-    housing = round(housing, 2)
-    utilities = round(utilities, 2)
-    net = round(gross - housing - utilities, 2)
-
-    summary = PayrollSummary(
-        total_hours=total_hours,
-        gross_amount=gross,
-        housing_deduction=housing,
-        utilities_deduction=utilities,
-        net_amount=net,
-    )
-
-    return rows, summary
+def calculate_payroll(employee, hours_map, rate_mode='custom', *, housing=0, utilities=0):
+    if rate_mode not in ('fixed', 'custom'):
+        raise ValueError('Unknown rate mode')
+    rows = build_payroll_rows(hours_map, FIXED_RATE if rate_mode == 'fixed' else employee.rate)
+    gross = sum((Decimal(str(r.amount)) for r in rows), Decimal(0))
+    housing = number(housing, 'Rental deduction').quantize(CENT, rounding=ROUND_HALF_UP)
+    utilities = number(utilities, 'Utilities deduction').quantize(CENT, rounding=ROUND_HALF_UP)
+    total_hours = sum((Decimal(str(r.hours)) for r in rows), Decimal(0))
+    return rows, PayrollSummary(float(total_hours), float(gross), float(housing), float(utilities), float(gross - housing - utilities))
 
 
-# ==================================================
-# CUSTOM RATE (EMPLOYEE) — ✅ DEDUCTIONS APPLY
-# ==================================================
-def calculate_custom_payroll(
-    employee: Employee,
-    hours_map: Dict[str, float],
-    _start=None,
-    _end=None,
-    *,
-    housing: float = 0.0,
-    utilities: float = 0.0,
-):
-    rate = employee.rate
-    rows = build_payroll_rows(hours_map, rate)
+def calculate_fixed_payroll(employee, hours_map, _start=None, _end=None, *, housing=0, utilities=0):
+    return calculate_payroll(employee, hours_map, 'fixed', housing=housing, utilities=utilities)
 
-    total_hours = sum(r.hours for r in rows)
-    gross = round(sum(r.amount for r in rows), 2)
 
-    housing = round(housing, 2)
-    utilities = round(utilities, 2)
-    net = round(gross - housing - utilities, 2)
-
-    summary = PayrollSummary(
-        total_hours=total_hours,
-        gross_amount=gross,
-        housing_deduction=housing,
-        utilities_deduction=utilities,
-        net_amount=net,
-    )
-
-    return rows, summary
+def calculate_custom_payroll(employee, hours_map, _start=None, _end=None, *, housing=0, utilities=0):
+    return calculate_payroll(employee, hours_map, 'custom', housing=housing, utilities=utilities)

@@ -1,20 +1,9 @@
-import sqlite3
-import os
+"""Compatibility entry point: perform the complete, backed-up migration."""
+from database.db import Database
 
-db_path = os.path.join(
-    os.getenv("LOCALAPPDATA"),
-    "PayrollSystem",
-    "payroll.db"
-)
-
-print("DB path:", db_path)
-
-conn = sqlite3.connect(db_path)
-cur = conn.cursor()
-
-cur.execute("ALTER TABLE employees ADD COLUMN bank TEXT")
-
-conn.commit()
-conn.close()
-
-print("✅ Column 'bank' added successfully")
+if __name__ == '__main__':
+    db = Database()
+    try:
+        print('Database schema is current. Backup:', db.last_backup)
+    finally:
+        db.close()

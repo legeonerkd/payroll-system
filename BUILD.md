@@ -1,84 +1,21 @@
-# Инструкция по сборке PayrollSystem
+# Build and verify PayrollSystem 1.9.1
 
-## Требования
+Windows 10/11 x64, Python 3.12 and Inno Setup 6 are required for the Windows installer.
 
-- Python 3.12+
-- PyInstaller
-- Inno Setup 6 (для создания инсталлятора)
-
-## Установка зависимостей
-
-```bash
-pip install -r requirements.txt
-pip install pyinstaller
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest -q
+.venv\Scripts\python -m PyInstaller PayrollSystem.spec --clean --noconfirm
+& 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' PayrollSystem.iss
 ```
 
-## Сборка EXE файла
+The tracked spec includes the application icon, Unicode font and Babel calendar support. The EXE is written to `dist\PayrollSystem.exe`; the installer to `output\PayrollSystem_v1.9.1_Setup.exe`. Build artifacts are not stored in Git. Downloadable releases exist only when explicitly published under GitHub Releases.
 
-### Метод 1: Использование spec-файла (рекомендуется)
+Before distributing, test a clean install, an upgrade from a copy of each supported database schema, PDF preview/save, XLSX import and uninstall. The installer must preserve user data under `%LOCALAPPDATA%\PayrollSystem`.
 
-```bash
-pyinstaller PayrollSystem.spec --clean --noconfirm
-```
+For isolated verification, set `PAYROLL_DATA_DIR` and `PAYROLL_OUTPUT_DIR` to disposable directories before launch. Tests set these paths themselves and never use the live database.
 
-### Метод 2: Прямая команда
+Schema migrations make a verified backup before changing an existing database. For rollback, close the program and restore a backup into a separate data directory; never use an older app against the upgraded database.
 
-```bash
-pyinstaller --onefile --windowed --icon=icon.ico --name=PayrollSystem ^
-  --add-data "icon.ico;." ^
-  --add-data "fonts/DejaVuSans.ttf;fonts" ^
-  --add-data "templates/*.json;templates" ^
-  --hidden-import babel.numbers ^
-  app.py
-```
-
-После успешной сборки EXE файл будет находиться в папке `dist/PayrollSystem.exe`.
-
-## Создание инсталлятора
-
-### Требования
-
-Установите [Inno Setup 6](https://jrsoftware.org/isdl.php)
-
-### Сборка инсталлятора
-
-```bash
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" PayrollSystem.iss
-```
-
-Инсталлятор будет создан в папке `output/PayrollSystem_v1.7.0_Setup.exe`.
-
-## Структура файлов после сборки
-
-```
-PayrollSystem/
-├── dist/
-│   └── PayrollSystem.exe          # Исполняемый файл (~39 MB)
-├── output/
-│   └── PayrollSystem_v1.7.0_Setup.exe  # Инсталлятор (~40 MB)
-├── build/                         # Временные файлы сборки
-└── ...
-```
-
-## Тестирование
-
-1. Запустите `dist/PayrollSystem.exe` для проверки работоспособности
-2. Установите приложение через инсталлятор для проверки процесса установки
-3. Проверьте создание ярлыков на рабочем столе и в меню Пуск
-
-## Распространение
-
-Для распространения используйте файл `output/PayrollSystem_v1.7.0_Setup.exe`.
-
-Инсталлятор включает:
-- Автоматическую установку в `%LOCALAPPDATA%\Programs\PayrollSystem`
-- Создание ярлыков в меню Пуск
-- Опциональный ярлык на рабочем столе
-- Опциональный запуск при старте Windows
-- Полное удаление через панель управления
-
-## Примечания
-
-- База данных создается автоматически в `%LOCALAPPDATA%\PayrollSystem\payroll.db`
-- При удалении приложения база данных также удаляется
-- Для обновления версии измените `APP_VERSION` в `core/version.py` и `AppVersion` в `PayrollSystem.iss`
+The version is defined in `core/version.py`; keep the installer AppVersion and output name in sync. `python get_version.py` prints the application version.

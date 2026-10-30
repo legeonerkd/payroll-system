@@ -1,161 +1,41 @@
-# Руководство пользователя PayrollSystem v1.7.0
+# PayrollSystem 1.9.1 — usage
 
-## 📥 Установка
+## Employees
 
-1. Скачайте файл `PayrollSystem_v1.7.0_Setup.exe`
-2. Запустите инсталлятор
-3. Следуйте инструкциям мастера установки
-4. Выберите опции:
-   - ✅ Создать ярлык на рабочем столе (рекомендуется)
-   - ⬜ Запускать при старте Windows (опционально)
+Add a name and positive hourly rate. Banking fields are optional. Each employee has a stable ID, displayed as `Name [#ID]` in Payroll. Two employees may share a name. Archive hides the employee from active lists while retaining hours and completed statements.
 
-## 🚀 Первый запуск
+## Working hours and statements
 
-После установки приложение можно запустить:
-- Через ярлык на рабочем столе
-- Через меню Пуск → Payroll System
+1. Select an employee and the From/To dates; click Generate Period.
+2. Existing hours are loaded. If no saved hours exist in the period, weekdays start at 10 and weekends at zero. Review all values; these defaults are not attendance records.
+3. Double-click hours to edit (0–24, decimal hours allowed). Save hours (draft) stores the timesheet without issuing a statement. Enter explicitly zero hours to correct a day to zero.
+4. Choose Fixed 8 EUR/hour or Employee Custom Rate. Enter rental and utility deductions, using a decimal point.
+5. Preview creates a temporary PDF without changing the database. Save creates a unique PDF and records a payroll snapshot. Print also records the calculation after submitting the document to the system print handler; printer delivery is controlled by Windows.
 
-При первом запуске автоматически создаётся база данных.
+Switching employee loads that employee's period and resets deductions. Unsaved hours require confirmation before discarding. If you change the dates, Generate Period again before saving or creating a PDF.
 
-## 👥 Управление сотрудниками
+History > Payroll history shows completed saved calculations. Opening a historical calculation uses its saved name, banking details, daily rates and totals, even after the employee card changes. A revised calculation creates another history entry; identical repeated saves reuse the same snapshot.
 
-### Добавление сотрудника
+Export > Export work hours exports the timesheet, not a record of payments. Applied rates for legacy hours and unissued drafts may be unknown. Completed statement totals and deductions are kept in Payroll history.
 
-1. Откройте вкладку **Employees**
-2. Заполните форму справа:
-   - **Full name** * (обязательно)
-   - **Hourly rate €/h** * (обязательно)
-   - **Bank** (опционально)
-   - **IBAN** (опционально)
-   - **BIC** (опционально)
-3. Нажмите кнопку **➕ Add**
+## XLSX import
 
-### Редактирование сотрудника
+Use Import > Import from Excel > Template. Only `.xlsx` is supported. Keep the first five columns in this order: Employee Name, Hourly Rate, Bank, IBAN, BIC. Add date columns such as `01-05-2026` or real Excel dates. An optional `Employee ID` column may be added after the first five columns.
 
-1. Выберите сотрудника в таблице (клик левой кнопкой мыши)
-2. Данные автоматически загрузятся в форму
-3. Измените нужные поля
-4. Нажмите кнопку **✏️ Update**
+- Use Employee ID for existing namesakes. Without an ID, the name must resolve to exactly one active employee or identify a new employee.
+- Enter a finite positive rate and hours from 0 to 24. Duplicate dates or employee rows are errors.
+- Zero explicitly corrects hours. Empty hour cells are omitted and leave existing dates unchanged.
+- Empty bank, IBAN and BIC cells preserve existing details when updating. Clear details deliberately in the employee editor instead.
+- Select the rate mode and deductions; preview gross values respond to the rate mode. Deductions apply individually to every imported employee.
+- Save hours to database controls database writes. With it disabled, PDFs can be created without creating/updating employees. With PDFs disabled, only draft hours are saved.
+- The entire batch is validated and processed as one transaction. If any row or PDF fails, database changes are rolled back and PDFs created by that attempt are removed. Do not close the program while a batch is running.
 
-### Удаление сотрудника
+Full precision hours are used in the calculation and PDF. Files use unique names and do not overwrite earlier periods.
 
-1. Выберите сотрудника в таблице
-2. Нажмите кнопку **🗑️ Delete**
-3. Подтвердите удаление в диалоговом окне
+## Backups and restore
 
-⚠️ **Внимание:** Удаление необратимо!
+A verified database backup is made on startup before opening an existing database. Data > Create database backup makes a manual copy. Backups are inside the application data directory: also copy them and your PDF folder to independent storage.
 
-### Поиск сотрудников
+To restore: close the application; preserve a copy of the current database; replace `payroll.db` with the selected backup; reopen with the appropriate application version. The next launch verifies/migrates supported schemas. Restoring replaces newer records, so first confirm that the chosen backup has the required data.
 
-1. Используйте поле **🔍 Search** в верхней части таблицы
-2. Введите имя, банк, IBAN или BIC
-3. Таблица автоматически отфильтруется
-
-**Совет:** Для сброса поиска очистите поле поиска
-
-### Сброс выделения
-
-Чтобы очистить форму и начать добавление нового сотрудника:
-- Кликните правой кнопкой мыши по таблице
-- Или кликните левой кнопкой мыши вне таблицы
-
-## 💰 Расчёт зарплаты
-
-### Создание расчёта
-
-1. Откройте вкладку **Payroll**
-2. Выберите сотрудника из списка
-3. Выберите период (месяц и год)
-4. Введите количество отработанных часов
-5. Нажмите **Calculate**
-
-### Экспорт отчётов
-
-После расчёта доступны кнопки экспорта:
-- **Export to PDF** - создание PDF отчёта
-- **Export to Excel** - создание Excel таблицы
-
-Файлы сохраняются в папку `Documents/PayrollSystem/Reports/`
-
-## 📊 История расчётов
-
-1. Откройте меню **History** → **Payroll history**
-2. Просмотрите все предыдущие расчёты
-3. Используйте фильтры для поиска нужного расчёта
-
-## 📍 Статус-бар
-
-В нижней части окна отображается:
-- **Слева:** Путь к базе данных
-- **Справа:** 👥 Количество сотрудников
-
-## 🎨 Интерфейс
-
-### Цветовая схема кнопок
-
-- **Синяя (➕ Add)** - добавление нового сотрудника
-- **Оранжевая (✏️ Update)** - обновление данных
-- **Красная (🗑️ Delete)** - удаление сотрудника
-
-### Таблица
-
-- **Полосатые строки** (zebra-стиль) для удобного чтения
-- **Выделение синим** при выборе строки
-- **Прокрутка** для больших списков
-
-## 💾 База данных
-
-База данных хранится в:
-```
-%LOCALAPPDATA%\PayrollSystem\payroll.db
-```
-
-Для резервного копирования скопируйте этот файл в безопасное место.
-
-## ❓ Часто задаваемые вопросы
-
-### Как сделать резервную копию?
-
-Скопируйте файл базы данных:
-```
-C:\Users\ВашеИмя\AppData\Local\PayrollSystem\payroll.db
-```
-
-### Как восстановить из резервной копии?
-
-1. Закройте приложение
-2. Замените файл `payroll.db` резервной копией
-3. Запустите приложение
-
-### Как удалить приложение?
-
-1. Откройте **Панель управления** → **Программы и компоненты**
-2. Найдите **Payroll System**
-3. Нажмите **Удалить**
-
-⚠️ **Внимание:** При удалении база данных также будет удалена!
-
-### Приложение не запускается
-
-1. Убедитесь, что у вас установлен Windows 10/11
-2. Проверьте, что приложение не заблокировано антивирусом
-3. Попробуйте запустить от имени администратора
-
-## 📞 Поддержка
-
-При возникновении проблем:
-- Проверьте [GitHub Issues](https://github.com/yourusername/PayrollSystem/issues)
-- Создайте новый issue с описанием проблемы
-- Приложите скриншоты, если возможно
-
-## 🔄 Обновление
-
-При выходе новой версии:
-1. Скачайте новый инсталлятор
-2. Запустите его (старая версия будет автоматически обновлена)
-3. База данных сохранится
-
----
-
-**Версия руководства:** 1.7.0  
-**Дата обновления:** 18.02.2026
+Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.

@@ -1,174 +1,45 @@
-# PayrollSystem v1.9.0
+# PayrollSystem 1.9.1
 
-Профессиональная система управления зарплатами с современным интерфейсом в стиле Windows 11.
+Local Windows application for employees, working hours and PDF payroll statements.
 
-## ✨ Основные возможности
+## Features
 
-### 📊 Управление сотрудниками
-- Добавление, редактирование и удаление сотрудников
-- Хранение банковских реквизитов (IBAN, BIC)
-- **🔍 Быстрый поиск** по имени, банку и реквизитам
-- **🎨 Zebra-стиль** таблицы для удобного чтения
-- Подтверждение удаления с предупреждением
+- Employees with stable IDs, custom hourly rates and optional banking details. Namesakes are supported. Archive preserves hours and payroll history.
+- Fixed rate of 8 EUR/hour or the employee's custom rate. Rental and utilities deductions apply in both modes.
+- Load an existing timesheet or generate a period (up to 366 days). New periods start with 10 weekday hours and zero weekend hours; verify them before saving.
+- Save draft hours independently. Preview does not change the database. Save/Print creates an immutable payroll snapshot with applied rates, deductions and bank details.
+- XLSX import with validation, optional Employee ID, an all-or-nothing database transaction and unique PDF documents. Explicit zero hours correct existing hours. Blank bank fields preserve existing values.
+- Unicode, multipage PDF statements; history reopens the saved calculation without using the employee's current card.
+- CSV export of working hours. Historical applied rates are shown only when recorded; draft/legacy rates remain unknown.
 
-### 💰 Расчёт зарплаты
-- Расчёт по часам работы
-- Поддержка различных ставок
-- Экспорт в PDF и Excel
-- История всех расчётов
-- **💾 Автосохранение часов** в базу данных
+## Run from source
 
-### 📊 История и экспорт
-- **📥 Экспорт часов в CSV** - выгрузка всей истории отработанных часов
-- Просмотр истории расчётов
-- Статистика по часам и суммам
-- Автоматическое сохранение данных при генерации отчётов
+Windows 10/11, Python 3.12:
 
-### 📂 Импорт из Excel
-- **📊 Массовый импорт** - загрузка данных всех сотрудников из одного Excel файла
-- **⚡ Автогенерация PDF** - автоматическое создание зарплатных ведомостей для всех сотрудников
-- **📋 Предпросмотр** - проверка данных перед импортом
-- **📖 Готовый шаблон** - скачайте и заполните
-- **Формат:** `.xlsx` - [Подробнее о формате](docs/EXCEL_FORMAT.md)
-
-### 🎨 Современный интерфейс
-- Дизайн в стиле Windows 11
-- Цветовая схема с акцентами
-- Карточки с отступами (padding 20px)
-- Горизонтальное расположение кнопок
-- **📊 Статус-бар** с информацией о базе данных и количестве сотрудников
-- Иконки в кнопках для лучшей визуализации
-
-## 🚀 Установка
-
-### Для пользователей
-
-Скачайте и запустите инсталлятор:
-```
-output/PayrollSystem_v1.9.0_Setup.exe
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python app.py
 ```
 
-Инсталлятор автоматически:
-- Установит приложение в `%LOCALAPPDATA%\Programs\PayrollSystem`
-- Создаст ярлыки в меню Пуск
-- Предложит создать ярлык на рабочем столе
-- Предложит добавить в автозагрузку
+Tests and build instructions: [BUILD.md](BUILD.md). Usage: [USER_GUIDE.md](USER_GUIDE.md).
 
-### Для разработчиков
+## Data and updates
 
-1. Клонируйте репозиторий
-2. Установите зависимости:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Запустите приложение:
-   ```bash
-   python app.py
-   ```
+The database is stored in `%LOCALAPPDATA%\PayrollSystem\payroll.db`. A verified SQLite backup is created on startup before updating an existing database. `Data > Create database backup` creates another copy; copy backups to a separate drive as well.
 
-## 🔧 Сборка
+Version 1.9.1 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
 
-Подробная инструкция по сборке находится в [`BUILD.md`](BUILD.md).
+Uninstall preserves the database and backups. The application never uploads payroll data. Do not commit databases, payroll documents, exports or personal examples to Git.
 
-Быстрая сборка:
-```bash
-# EXE файл
-pyinstaller PayrollSystem.spec --clean --noconfirm
+PDFs are saved under `Documents\PayrollSystem\Payroll\YYYY-MM\` with employee ID, full period and a unique suffix. They are separate from the database; back them up as well.
 
-# Инсталлятор
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" PayrollSystem.iss
-```
+## Calculation policy
 
-## 📁 Структура проекта
+Money is calculated with decimal arithmetic. Each daily amount is rounded to cents with ROUND_HALF_UP, then summed; each deduction is rounded to cents before subtraction. Hours remain exact to the supplied decimal input (0–24 per day). Employee rates must be finite and positive; deductions must be finite and non-negative. Negative net results are allowed when deductions exceed gross pay and must be reviewed by the operator.
 
-```
-PayrollSystem/
-├── app.py                 # Главный файл приложения
-├── core/                  # Основные модули
-│   ├── models.py         # Модели данных
-│   ├── version.py        # Версия приложения
-│   └── paths.py          # Пути к файлам
-├── database/             # Работа с БД
-│   └── db.py            # SQLite база данных
-├── services/            # Бизнес-логика
-│   ├── payroll_service.py
-│   └── report_service.py
-├── ui/                  # Интерфейс
-│   ├── styles.py        # Стили Windows 11
-│   ├── employees_tab.py # Вкладка сотрудников
-│   ├── payroll_tab.py   # Вкладка расчётов
-│   └── payroll_history.py
-├── templates/           # Шаблоны отчётов
-├── fonts/              # Шрифты для PDF
-└── tests/              # Тесты
-```
+This application implements hourly amounts and two deductions; it has no tax, social contribution, overtime or payment-approval engine.
 
-## 💾 База данных
+## Repository safety
 
-База данных автоматически создаётся в:
-```
-%LOCALAPPDATA%\PayrollSystem\payroll.db
-```
-
-## 🎯 Новое в версии 1.9.0
-
-### ✨ Автоматическая синхронизация данных
-- 🔄 **Обновление без перезагрузки** - список сотрудников на вкладке "Payroll" автоматически обновляется при добавлении нового сотрудника
-- ✅ **Сохранение выбора** - текущий выбранный сотрудник остаётся выбранным после обновления
-
-### 💾 Автосохранение истории часов
-- 📊 **База данных часов** - все отработанные часы автоматически сохраняются при генерации PDF
-- 🔗 **Связь с сотрудниками** - каждая запись часов привязана к конкретному сотруднику
-- 🚫 **Без дубликатов** - система предотвращает повторное сохранение одних и тех же данных
-
-### 📥 Экспорт истории часов
-- 📋 **Новое окно экспорта** - удобный просмотр всех отработанных часов
-- 💾 **Выгрузка в CSV** - экспорт всей истории в Excel-совместимый формат
-- 📊 **Статистика** - общее количество часов, записей и сумм
-- 🎨 **Zebra-стиль** - полосатая таблица для удобного чтения
-- 🚀 **Быстрое открытие** - возможность сразу открыть экспортированный файл
-
-## 🎯 Версия 1.8.3
-
-- 🔄 Универсальная логика удержаний для Fixed и Custom Rate
-- 📄 Автомасштабирование PDF-отчётов (до 31 дня на одной странице)
-
-## 🎯 Версия 1.8.2
-
-- 🔄 Изменена логика удержаний: Fixed Rate (8€/h) - С удержаниями, Custom Rate - БЕЗ удержаний
-- ✅ Удержания за коммунальные услуги и аренду теперь применяются только к фиксированной ставке
-
-## 🎯 Версия 1.8.1
-
-- 🐛 Исправлена работа кнопки Add с банковскими реквизитами
-- 🐛 Исправлена работа кнопки Update
-- ✅ Добавлена валидация имени при обновлении
-- ✅ Автоматическая очистка формы после обновления
-- ✅ Улучшенная синхронизация БД с UI
-
-## 🎯 Версия 1.8.0
-
-- ✅ 3-зонный layout (Header/Content/Summary)
-- ✅ Улучшенная таблица часов с zebra-стилем
-- ✅ Подсветка выходных дней
-- ✅ Карточки Rate Type и Deductions
-- ✅ Автоматический пересчёт NET
-
-## 🎯 Версия 1.7.0
-
-- ✅ Современный дизайн в стиле Windows 11
-- ✅ Zebra-стиль для таблиц (полосатые строки)
-- ✅ Горизонтальное расположение кнопок
-- ✅ Карточки с отступами для форм
-- ✅ Статус-бар с информацией о системе
-- ✅ Поиск сотрудников в реальном времени
-- ✅ Улучшенные диалоги подтверждения
-- ✅ Профессиональный инсталлятор
-
-## 📝 Лицензия
-
-MIT License
-
-## 👨‍💻 Автор
-
-PayrollSystem Team
+Real database backups were removed from the branch and tag history on 30 October 2026. Existing clones must be replaced with fresh clones; do not merge old history back. GitHub may retain old cached objects pending a support cleanup.

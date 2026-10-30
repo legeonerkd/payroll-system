@@ -1,6 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
-import os
+from tkinter import ttk, messagebox
 
 from database.db import Database
 from core.version import APP_NAME, APP_VERSION
@@ -11,6 +10,11 @@ from ui.payroll_tab import PayrollTab
 from ui.payroll_history import PayrollHistory
 from ui.hours_export import HoursExportWindow
 from ui.excel_import import ExcelImportWindow
+from config import DATABASE_PATH, APP_DATA_DIR
+from core.backup import backup_db
+import logging
+import sys
+from pathlib import Path
 
 
 class PayrollApp(tk.Tk):
@@ -25,7 +29,7 @@ class PayrollApp(tk.Tk):
         
         # ---------- ICON ----------
         try:
-            self.iconbitmap("icon.ico")
+            self.iconbitmap(str(Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))/'icon.ico'))
         except:
             pass  # Если иконка не найдена, продолжаем без неё
 
@@ -33,12 +37,10 @@ class PayrollApp(tk.Tk):
         setup_styles(self)
 
         # ---------- DATABASE ----------
-        local_appdata = os.getenv("LOCALAPPDATA")
-        db_dir = os.path.join(local_appdata, "PayrollSystem")
-        db_path = os.path.join(db_dir, "payroll.db")
-        os.makedirs(db_dir, exist_ok=True)
+        db_path = str(DATABASE_PATH)
 
         self.db = Database()
+        self.protocol('WM_DELETE_WINDOW',self._close)
 
 
         # ---------- NOTEBOOK ----------
@@ -78,6 +80,9 @@ class PayrollApp(tk.Tk):
             label="Payroll history",
             command=lambda: PayrollHistory(self, self.db)
         )
+        data_menu=tk.Menu(menubar,tearoff=0)
+        menubar.add_cascade(label='Data',menu=data_menu)
+        data_menu.add_command(label='Create database backup',command=self._backup)
 
         # ---------- STATUS BAR ----------
         self.status_bar = ttk.Frame(self, relief="sunken", borderwidth=1)
@@ -112,8 +117,36 @@ class PayrollApp(tk.Tk):
         """Обработчик изменений в списке сотрудников"""
         self._update_status()
         self.payroll_tab.refresh_employees()
+        self.employees_tab._load()
+
+    def _backup(self):
+        try:
+            path=backup_db(DATABASE_PATH)
+            messagebox.showinfo('Backup',f'Verified backup saved to:\n{path}\nCopy it to a separate drive for independent storage.')
+        except Exception as exc:
+            messagebox.showerror('Backup failed',str(exc))
+
+    def _close(self):
+        if any(isinstance(w,ExcelImportWindow) and w._running for w in self.winfo_children()):
+            messagebox.showinfo('Import running','Wait for the import to finish before closing the application.')
+            return
+        if (self.payroll_tab._dirty or self.payroll_tab._editor is not None) and not messagebox.askyesno('Unsaved hours','Close and discard unsaved hours?'):
+            return
+        self.db.close()
+        self.destroy()
+
+    def report_callback_exception(self,exc_type,exc,tb):
+        # Do not log arbitrary exception text or locals containing payroll data.
+        logging.error('Unhandled UI exception: %s',exc_type.__name__)
+        messagebox.showerror('PayrollSystem',f'{exc_type.__name__}: {exc}')
 
 
 if __name__ == "__main__":
-    PayrollApp().mainloop()
+    logging.basicConfig(filename=APP_DATA_DIR/'errors.log',level=logging.ERROR,
+                        format='%(asctime)s %(levelname)s %(message)s')
+    try:
+        PayrollApp().mainloop()
+    except Exception as exc:
+        logging.error('Startup failed: %s',type(exc).__name__)
+        messagebox.showerror('PayrollSystem startup failed',str(exc))
 

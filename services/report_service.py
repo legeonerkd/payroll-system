@@ -1,359 +1,160 @@
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.platypus import Table, TableStyle
-from reportlab.lib import colors
-from reportlab.pdfgen import canvas
+"""PDF presentation of the shared calculation or an immutable payroll snapshot."""
 from datetime import datetime
-import tempfile
-import os
-import sys
-import subprocess
+from decimal import Decimal
 from pathlib import Path
+from tempfile import mkstemp
+from uuid import uuid4
+from xml.sax.saxutils import escape
+import os
+import re
+import subprocess
+import sys
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 from config import FIXED_RATE
+from core.models import Employee
+from services.payroll_service import calculate_payroll
 
 
-# ======================================================
-# HELPERS - FILE NAMING
-# ======================================================
-
-def _get_payroll_directory(period_from: str) -> Path:
-    """Создаёт и возвращает директорию для сохранения PDF по периоду"""
-    # Извлекаем год-месяц из даты (формат: DD-MM-YYYY)
-    parts = period_from.split("-")
-    year_month = f"{parts[2]}-{parts[1]}"  # YYYY-MM
-    
-    # Путь к папке Documents/PayrollSystem/Payroll/YYYY-MM/
-    base_dir = Path.home() / "Documents" / "PayrollSystem" / "Payroll" / year_month
-    base_dir.mkdir(parents=True, exist_ok=True)
-    
-    return base_dir
+def _date(value):
+    for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            pass
+    raise ValueError('Invalid date')
 
 
-def _generate_filename(employee_name: str, rate_mode: str, rate: float) -> str:
-    """Генерирует имя файла в зависимости от типа ставки"""
-    if rate_mode == "fixed":
-        return f"{employee_name}_Fixed_{FIXED_RATE}€h.pdf"
-    else:
-        return f"{employee_name}_Custom_{rate:.2f}€h.pdf"
+def _get_payroll_directory(period_from):
+    month = _date(period_from).strftime('%Y-%m')
+    base = Path(os.environ.get('PAYROLL_OUTPUT_DIR', Path.home() / 'Documents' / 'PayrollSystem' / 'Payroll'))
+    directory = base.resolve() / month
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
-# ======================================================
-# PUBLIC API — FROM PAYROLL TAB
-# ======================================================
-
-def generate_payroll_pdf(
-    employee_name: str,
-    employee_rate: float,
-    rows: list,
-    rate_mode: str,
-    utilities: str | None,
-    rental: str | None,
-    period_from: str,
-    period_to: str,
-    bank_name: str | None,
-    iban: str | None,
-    bic: str | None,
-    action: str = "preview"  # "preview", "save", "print"
-) -> str:
-    """
-    Генерирует PDF и выполняет действие
-    
-    Args:
-        action: "preview" - открыть для просмотра
-                "save" - сохранить в папку по периоду
-                "print" - отправить на печать
-    
-    Returns:
-        Путь к созданному PDF файлу
-    """
-    rate = FIXED_RATE if rate_mode == "fixed" else float(employee_rate)
-
-    parsed_rows = []
-    gross = 0.0
-    total_hours = 0.0
-
-    for date, day, hours in rows:
-        h = float(hours) if hours else 0.0
-        amount = h * rate
-        gross += amount
-        total_hours += h
-
-        parsed_rows.append((
-            date,
-            day,
-            f"{h:.1f}",
-            f"{rate:.2f} €",
-            f"{amount:.2f} €"
-        ))
-
-    # Определяем путь сохранения
-    if action == "save":
-        payroll_dir = _get_payroll_directory(period_from)
-        filename = _generate_filename(employee_name, rate_mode, rate)
-        pdf_path = payroll_dir / filename
-    else:
-        # Для просмотра и печати используем временную папку
-        filename = _generate_filename(employee_name, rate_mode, rate)
-        pdf_path = Path(tempfile.gettempdir()) / filename
-
-    pdf_path_str = str(pdf_path)
-
-    _render_pdf_to_file(
-        path=pdf_path_str,
-        employee_name=employee_name,
-        period_from=period_from,
-        period_to=period_to,
-        created_at=datetime.now().strftime("%d-%m-%Y"),
-        bank=bank_name,
-        iban=iban,
-        bic=bic,
-        rows=parsed_rows,
-        gross=gross,
-        total_hours=total_hours,
-        utilities=float(utilities) if utilities else None,
-        rental=float(rental) if rental else None,
-    )
-
-    # Выполняем действие
-    if action == "preview":
-        _open_file(pdf_path_str)
-    elif action == "print":
-        _print_file(pdf_path_str)
-    # Для "save" просто возвращаем путь
-
-    return pdf_path_str
+def _generate_filename(employee_name, rate_mode, rate, period_from='', period_to='', employee_id=None):
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', employee_name).strip(' .')[:70] or 'Employee'
+    start = _date(period_from).isoformat() if period_from else 'period'
+    end = _date(period_to).isoformat() if period_to else 'period'
+    identity = f'id{employee_id}_' if employee_id is not None else ''
+    return f'Payroll_{identity}{name}_{start}_{end}_{rate_mode}_{rate:.2f}_{uuid4().hex[:12]}.pdf'
 
 
-# Обратная совместимость
+def generate_payroll_pdf(employee_name, employee_rate, rows, rate_mode, utilities, rental,
+                         period_from, period_to, bank_name, iban, bic, action='preview', employee_id=None):
+    if action not in ('preview', 'save', 'print'):
+        raise ValueError('Unknown PDF action')
+    start, end = _date(period_from), _date(period_to)
+    if start > end or not rows:
+        raise ValueError('Generate a valid, non-empty period first')
+    values = {}
+    for day, _weekday, hours in rows:
+        day = _date(day)
+        if not start <= day <= end or day.isoformat() in values:
+            raise ValueError('PDF dates must be unique and within the selected period')
+        values[day.isoformat()] = hours or 0
+    calculated, summary = calculate_payroll(Employee(employee_id or 0, employee_name, employee_rate), values,
+                                            rate_mode, utilities=utilities or 0, housing=rental or 0)
+    rate = calculated[0].rate
+    directory = _get_payroll_directory(period_from) if action == 'save' else Path(__import__('tempfile').gettempdir())
+    filename = _generate_filename(employee_name, rate_mode, rate, period_from, period_to, employee_id)
+    target = directory / filename
+    fd, temporary = mkstemp(suffix='.pdf', prefix='payroll-', dir=directory)
+    os.close(fd)
+    try:
+        _render_pdf_to_file(temporary, employee_name, start.strftime('%d-%m-%Y'), end.strftime('%d-%m-%Y'),
+                            datetime.now().strftime('%d-%m-%Y'), bank_name, iban, bic,
+                            [(r.date_ui, r.weekday, f'{r.hours:g}', f'{r.rate:.2f} €', f'{r.amount:.2f} €') for r in calculated],
+                            summary.gross_amount, summary.total_hours, summary.utilities_deduction,
+                            summary.housing_deduction, net_amount=summary.net_amount)
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    if action == 'preview':
+        _open_file(str(target))
+    elif action == 'print':
+        _print_file(str(target))
+    return str(target)
+
+
 def preview_payroll_pdf(*args, **kwargs):
-    """Устаревшая функция - используйте generate_payroll_pdf"""
-    return generate_payroll_pdf(*args, **kwargs, action="preview")
+    return generate_payroll_pdf(*args, **kwargs, action='preview')
 
-
-# ======================================================
-# PUBLIC API — FROM HISTORY
-# ======================================================
 
 def preview_payroll_pdf_from_history(payroll, days):
-    rate = payroll["rate"]
-
-    parsed_rows = []
-    gross = 0.0
-    total_hours = 0.0
-
-    for d in days:
-        h = d["hours"]
-        amount = h * rate
-        gross += amount
-        total_hours += h
-
-        day_name = datetime.strptime(d["work_date"], "%d-%m-%Y").strftime("%A")
-
-        parsed_rows.append((
-            d["work_date"],
-            day_name,
-            f"{h:.1f}",
-            f"{rate:.2f} €",
-            f"{amount:.2f} €"
-        ))
-
-    # Для истории всегда используем временный файл для просмотра
-    pdf_path = Path(tempfile.gettempdir()) / f"Payroll_{payroll['name']}.pdf"
-    
-    _render_pdf_to_file(
-        path=str(pdf_path),
-        employee_name=payroll["name"],
-        period_from=payroll["period_from"],
-        period_to=payroll["period_to"],
-        created_at=payroll["created_at"],
-        bank=payroll["bank"],
-        iban=payroll["iban"],
-        bic=payroll["bic"],
-        rows=parsed_rows,
-        gross=gross,
-        total_hours=total_hours,
-        utilities=payroll["utilities"],
-        rental=payroll["rental"],
-    )
-    
-    _open_file(str(pdf_path))
+    fd, path = mkstemp(prefix=f'Payroll_{payroll["id"]}_', suffix='.pdf')
+    os.close(fd)
+    _render_pdf_to_file(path, payroll['name'], payroll['period_from'], payroll['period_to'], payroll['created_at'],
+                        payroll['bank'], payroll['iban'], payroll['bic'],
+                        [(_date(d['work_date']).strftime('%d-%m-%Y'), _date(d['work_date']).strftime('%A'),
+                          f'{d["hours"]:g}', f'{d["rate"]:.2f} €', f'{d["amount"]:.2f} €') for d in days],
+                        payroll['gross_amount'], payroll['total_hours'], payroll['utilities'], payroll['rental'],
+                        net_amount=payroll['net_amount'])
+    _open_file(path)
+    return path
 
 
-# ======================================================
-# CORE PDF RENDER (FINAL)
-# ======================================================
+def _render_pdf_to_file(path, employee_name, period_from, period_to, created_at, bank, iban, bic,
+                         rows, gross, total_hours, utilities, rental, net_amount=None):
+    if 'PayrollUnicode' not in pdfmetrics.getRegisteredFontNames():
+        root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
+        pdfmetrics.registerFont(TTFont('PayrollUnicode', str(root / 'fonts' / 'DejaVuSans.ttf')))
+    styles = getSampleStyleSheet()
+    normal = ParagraphStyle('PayrollBody', parent=styles['Normal'], fontName='PayrollUnicode', fontSize=9, leading=13)
+    title = ParagraphStyle('PayrollTitle', parent=normal, fontSize=14, leading=19, alignment=1, spaceAfter=8)
+    small = ParagraphStyle('PayrollCell', parent=normal, fontSize=8, leading=11)
+    def para(text, style=normal):
+        return Paragraph(escape(str(text)), style)
+    story = [para('Blue Reef Development LTD', title), para('PAYROLL STATEMENT', title), Spacer(1, 5*mm),
+             para(f'Employee: {employee_name}'), para(f'Period: {period_from} - {period_to}'),
+             para(f'Generated on: {created_at}'), Spacer(1, 4*mm)]
+    for label, value in [('Bank',bank),('IBAN',iban),('BIC',bic)]:
+        if value:
+            story.append(para(f'{label}: {value}'))
+    story.append(Spacer(1, 5*mm))
+    data = [[para(v, small) for v in ['Date','Day','Hours','Hourly rate','Amount']]]
+    data.extend([[para(v, small) for v in row] for row in rows])
+    table = Table(data, colWidths=[30*mm,40*mm,20*mm,35*mm,40*mm], repeatRows=1, hAlign='LEFT')
+    table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),.4,colors.grey),
+                               ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
+                               ('VALIGN',(0,0),(-1,-1),'TOP'),
+                               ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4)]))
+    story.extend([table, Spacer(1, 6*mm)])
+    if net_amount is None:
+        net_amount = Decimal(str(gross))-Decimal(str(utilities or 0))-Decimal(str(rental or 0))
+    totals = [para(f'Total hours: {total_hours:g} h'), para(f'Gross amount: {gross:.2f} €'),
+              para(f'Utilities deduction: {utilities or 0:.2f} €'), para(f'Rental deduction: {rental or 0:.2f} €'),
+              para(f'Net amount: {net_amount:.2f} €'), Spacer(1, 10*mm)]
+    signatures = Table([[para('Employee signature:'),para('Manager signature:')],
+                        [para('________________________'),para('________________________')],
+                        [para(f'Date: {created_at}'),para(f'Date: {created_at}')]],colWidths=[85*mm,80*mm])
+    totals.append(signatures)
+    story.append(KeepTogether(totals))
+    doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=20*mm,leftMargin=20*mm,
+                            topMargin=18*mm,bottomMargin=18*mm, title='Payroll statement', author='PayrollSystem')
+    def page_number(c, document):
+        c.setFont('PayrollUnicode',8)
+        c.drawRightString(A4[0]-20*mm,10*mm,f'Page {document.page}')
+    doc.build(story,onFirstPage=page_number,onLaterPages=page_number)
 
-def _render_pdf_to_file(
-    path,
-    employee_name,
-    period_from,
-    period_to,
-    created_at,
-    bank,
-    iban,
-    bic,
-    rows,
-    gross,
-    total_hours,
-    utilities,
-    rental
-):
-    c = canvas.Canvas(path, pagesize=A4)
-    width, height = A4
-    y = height - 20 * mm
-
-    # ---------- HEADER ----------
-    c.setFont("Helvetica-Bold", 15)
-    c.drawCentredString(width / 2, y, "Blue Reef Development LTD")
-    y -= 10 * mm
-
-    c.setFont("Helvetica-Bold", 13)
-    c.drawCentredString(width / 2, y, "PAYROLL STATEMENT")
-    y -= 14 * mm
-
-    c.setFont("Helvetica", 10)
-    c.drawString(20 * mm, y, f"Employee: {employee_name}")
-    y -= 6 * mm
-    c.drawString(20 * mm, y, f"Period: {period_from} – {period_to}")
-    y -= 6 * mm
-    c.drawString(20 * mm, y, f"Generated on: {created_at}")
-    y -= 8 * mm
-
-    # ---------- BANK ----------
-    if bank or iban or bic:
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(20 * mm, y, "Bank details:")
-        y -= 6 * mm
-        c.setFont("Helvetica", 10)
-        if bank:
-            c.drawString(20 * mm, y, f"Bank: {bank}")
-            y -= 6 * mm
-        if iban:
-            c.drawString(20 * mm, y, f"IBAN: {iban}")
-            y -= 6 * mm
-        if bic:
-            c.drawString(20 * mm, y, f"BIC: {bic}")
-            y -= 6 * mm
-        y -= 6 * mm
-
-    # ---------- TABLE ----------
-    table_data = [["Date", "Day", "Hours", "Hourly rate", "Amount"]] + list(rows)
-    
-    # Динамическое масштабирование в зависимости от количества строк
-    num_rows = len(rows)
-    
-    # Расчёт доступного пространства для таблицы (учитываем место для заголовка и итогов)
-    # y - текущая позиция, минус место для итогов (~60mm) и подписей (~40mm)
-    available_height = y - 100 * mm
-    
-    # Рассчитываем оптимальные параметры
-    if num_rows <= 15:
-        font_size = 9
-        padding_top = 4
-        padding_bottom = 4
-    elif num_rows <= 25:
-        font_size = 8
-        padding_top = 3
-        padding_bottom = 3
-    else:  # 26-31 день
-        font_size = 7
-        padding_top = 2
-        padding_bottom = 2
-
-    table = Table(
-        table_data,
-        colWidths=[30 * mm, 36 * mm, 20 * mm, 34 * mm, 26 * mm]
-    )
-
-    style = TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
-
-        # Header
-        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", font_size),
-
-        # Body
-        ("FONT", (0, 1), (-1, -1), "Helvetica", font_size),
-        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
-        ("TOPPADDING", (0, 0), (-1, -1), padding_top),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), padding_bottom),
-    ])
-
-    # Highlight Sundays
-    for idx, row in enumerate(rows, start=1):
-        if row[1].lower().startswith("sun"):
-            style.add(
-                "BACKGROUND",
-                (0, idx),
-                (-1, idx),
-                colors.lavenderblush
-            )
-
-    table.setStyle(style)
-    table.wrapOn(c, width, height)
-    table.drawOn(c, 20 * mm, y - table._height)
-    y -= table._height + 12 * mm
-
-    # ---------- TOTALS ----------
-    net = gross - (utilities or 0) - (rental or 0)
-
-    c.setFont("Helvetica", 10)
-    c.drawString(20 * mm, y, f"Total hours: {total_hours:.1f} h")
-    y -= 6 * mm
-    c.drawString(20 * mm, y, f"Gross amount: {gross:.2f} €")
-    y -= 6 * mm
-
-    if utilities:
-        c.drawString(20 * mm, y, f"Utilities deduction: -{utilities:.2f} €")
-        y -= 6 * mm
-    if rental:
-        c.drawString(20 * mm, y, f"Rental deduction: -{rental:.2f} €")
-        y -= 6 * mm
-
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(20 * mm, y, f"Net amount: {net:.2f} €")
-    y -= 14 * mm
-
-    # ---------- SIGNATURES ----------
-    c.setFont("Helvetica", 10)
-
-    c.drawString(20 * mm, y, "Employee signature:")
-    c.drawString(120 * mm, y, "Manager signature:")
-    y -= 12 * mm
-
-    c.line(20 * mm, y, 90 * mm, y)
-    c.line(120 * mm, y, 190 * mm, y)
-    y -= 8 * mm
-
-    c.drawString(20 * mm, y, f"Date: {created_at}")
-    c.drawString(120 * mm, y, f"Date: {created_at}")
-
-    c.save()
-
-
-# ======================================================
-# FILE OPERATIONS
-# ======================================================
 
 def _open_file(path):
-    """Открыть файл для просмотра"""
-    if sys.platform.startswith("win"):
+    if sys.platform.startswith('win'):
         os.startfile(path)
-    elif sys.platform.startswith("darwin"):
-        subprocess.call(["open", path])
     else:
-        subprocess.call(["xdg-open", path])
+        subprocess.run(['open' if sys.platform=='darwin' else 'xdg-open',path],check=True)
 
 
 def _print_file(path):
-    """Отправить файл на печать"""
-    if sys.platform.startswith("win"):
-        # Windows - печать через ShellExecute
-        os.startfile(path, "print")
-    elif sys.platform.startswith("darwin"):
-        # macOS
-        subprocess.call(["lpr", path])
+    if sys.platform.startswith('win'):
+        os.startfile(path,'print')
     else:
-        # Linux
-        subprocess.call(["lpr", path])
-
+        subprocess.run(['lp',path],check=True)

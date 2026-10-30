@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 import os
 
@@ -111,10 +112,10 @@ class HoursExportWindow(tk.Toplevel):
             work_date = row["work_date"]
             hours = row["hours"]
             rate = row["rate"]
-            amount = hours * rate
+            amount = float((Decimal(str(hours))*Decimal(str(rate))).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP)) if rate is not None else None
             
             total_hours += hours
-            total_amount += amount
+            total_amount += amount or 0
             
             # Форматируем дату для отображения
             try:
@@ -131,9 +132,9 @@ class HoursExportWindow(tk.Toplevel):
                 values=(
                     employee,
                     display_date,
-                    f"{hours:.1f}",
-                    f"{rate:.2f}",
-                    f"{amount:.2f}"
+                    f"{hours:g}",
+                    f"{rate:.2f}" if rate is not None else 'Not recorded',
+                    f"{amount:.2f}" if amount is not None else 'Not recorded'
                 ),
                 tags=(tag,)
             )
@@ -141,7 +142,7 @@ class HoursExportWindow(tk.Toplevel):
         # Обновляем статистику
         count = len(hours_data)
         self.stats_label.config(
-            text=f"Total records: {count} | Total hours: {total_hours:.1f} | Total amount: {total_amount:.2f} €"
+            text=f"Records: {count} | Hours: {total_hours:g} | Recorded gross: {total_amount:.2f} € (draft/legacy rates may be unknown)"
         )
     
     def _export_csv(self):
