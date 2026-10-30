@@ -1,6 +1,6 @@
 [Setup]
 AppName=Payroll System
-AppVersion=1.9.1
+AppVersion=1.9.2
 AppPublisher=PayrollSystem Team
 AppPublisherURL=https://github.com/legeonerkd/payroll-system
 AppSupportURL=https://github.com/legeonerkd/payroll-system/issues
@@ -8,7 +8,7 @@ AppUpdatesURL=https://github.com/legeonerkd/payroll-system/releases
 DefaultDirName={localappdata}\Programs\PayrollSystem
 DefaultGroupName=Payroll System
 OutputDir=output
-OutputBaseFilename=PayrollSystem_v1.9.1_Setup
+OutputBaseFilename=PayrollSystem_v1.9.2_Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=lowest

@@ -139,3 +139,52 @@ def test_newer_schema_is_not_downgraded(tmp_path):
     path=tmp_path/'future.db'
     c=sqlite3.connect(path);c.execute('PRAGMA user_version=999');c.close()
     with pytest.raises(RuntimeError):Database(path)
+
+
+def legacy_history_tables(path, populated=False):
+    c=sqlite3.connect(path)
+    c.executescript('''CREATE TABLE payrolls(id INTEGER PRIMARY KEY,employee_id INTEGER,
+        period_from TEXT,period_to TEXT,created_at TEXT,rate REAL,utilities REAL,rental REAL,
+        total_hours REAL,net_amount REAL);
+        CREATE TABLE payroll_days(id INTEGER PRIMARY KEY,payroll_id INTEGER REFERENCES payrolls(id),
+        work_date TEXT,hours REAL);''')
+    if populated:
+        c.execute("INSERT INTO payrolls VALUES(1,1,'2026-05-01','2026-05-01','2026-05-02',12,0,0,8,96)")
+        c.execute("INSERT INTO payroll_days VALUES(1,1,'2026-05-01',8)")
+    c.commit();c.close()
+
+
+@pytest.mark.parametrize('version',[0,2])
+def test_empty_legacy_history_is_rebuilt_and_usable(tmp_path,version):
+    path=tmp_path/'legacy.db';legacy_db(path);legacy_history_tables(path)
+    c=sqlite3.connect(path);c.execute(f'PRAGMA user_version={version}');c.close()
+    db=Database(path)
+    assert db.last_backup.exists()
+    assert db.conn.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
+    pid=db.save_payroll(1,{'2026-05-01':8},'custom','2026-05-01','2026-05-01')
+    p,days=db.get_payroll_full(pid)
+    assert p['net_amount']==96
+    assert days[0]['amount']==96
+    assert db.load_hours(1,'2026-05-01','2026-05-01')[0]['hours']==8
+    db.close()
+
+
+def test_populated_unsupported_history_is_preserved(tmp_path):
+    path=tmp_path/'legacy.db';legacy_db(path);legacy_history_tables(path,populated=True)
+    with pytest.raises(RuntimeError,match='unsupported schema'):Database(path)
+    c=sqlite3.connect(path)
+    assert c.execute('SELECT net_amount FROM payrolls').fetchone()[0]==96
+    assert c.execute('SELECT hours FROM payroll_days').fetchone()[0]==8
+    assert c.execute('PRAGMA user_version').fetchone()[0]==0
+    assert 'archived' not in [r[1] for r in c.execute('PRAGMA table_info(employees)')]
+    c.close()
+
+
+def test_schema_two_upgrade_does_not_restore_cleared_bank(tmp_path):
+    path=tmp_path/'schema2.db';legacy_db(path)
+    db=Database(path);db.update_employee(1,'Synthetic',12,None,None,None)
+    db.conn.execute('PRAGMA user_version=2');db.close()
+    db=Database(path)
+    assert db.get_employee(1)['bank'] is None
+    assert db.conn.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
+    db.close()

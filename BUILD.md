@@ -1,4 +1,4 @@
-# Build and verify PayrollSystem 1.9.1
+# Build and verify PayrollSystem 1.9.2
 
 Windows 10/11 x64, Python 3.12 and Inno Setup 6 are required for the Windows installer.
 
@@ -10,7 +10,7 @@ python -m venv .venv
 & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' PayrollSystem.iss
 ```
 
-The tracked spec includes the application icon, Unicode font and Babel calendar support. The EXE is written to `dist\PayrollSystem.exe`; the installer to `output\PayrollSystem_v1.9.1_Setup.exe`. Build artifacts are not stored in Git. Downloadable releases exist only when explicitly published under GitHub Releases.
+The tracked spec includes the application icon, Unicode font and Babel calendar support. The EXE is written to `dist\PayrollSystem.exe`; the installer to `output\PayrollSystem_v1.9.2_Setup.exe`. Build artifacts are not stored in Git. Downloadable releases exist only when explicitly published under GitHub Releases.
 
 Before distributing, test a clean install, an upgrade from a copy of each supported database schema, PDF preview/save, XLSX import and uninstall. The installer must preserve user data under `%LOCALAPPDATA%\PayrollSystem`.
 

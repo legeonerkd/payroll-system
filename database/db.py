@@ -13,7 +13,7 @@ from core.models import Employee
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class Database:
@@ -72,7 +72,7 @@ class Database:
             columns = self._columns('employees')
             if 'bank' not in columns:
                 self.conn.execute('ALTER TABLE employees ADD COLUMN bank TEXT')
-            if 'bank_name' in columns and self.conn.execute('PRAGMA user_version').fetchone()[0] < SCHEMA_VERSION:
+            if 'bank_name' in columns and self.conn.execute('PRAGMA user_version').fetchone()[0] < 2:
                 self.conn.execute("UPDATE employees SET bank=bank_name WHERE (bank IS NULL OR bank='') AND bank_name IS NOT NULL")
             if 'archived' not in columns:
                 self.conn.execute('ALTER TABLE employees ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
@@ -100,6 +100,25 @@ class Database:
                     except ValueError as exc:
                         raise RuntimeError('Legacy hours could not be migrated safely; original database was backed up') from exc
                 self.conn.execute('DROP TABLE daily_hours')
+            # Early releases created unused tables with the same names but a
+            # different shape. CREATE IF NOT EXISTS cannot upgrade those tables.
+            required_payroll = {'id','employee_id','name','rate','rate_mode','period_from','period_to',
+                                'created_at','bank','iban','bic','utilities','rental','total_hours',
+                                'gross_amount','net_amount','pdf_path','fingerprint'}
+            required_days = {'payroll_id','work_date','hours','rate','amount'}
+            old_payroll = self._columns('payrolls')
+            old_days = self._columns('payroll_days')
+            incompatible = ((old_payroll and not required_payroll.issubset(old_payroll)) or
+                            (old_days and not required_days.issubset(old_days)))
+            if incompatible:
+                counts = [self.conn.execute('SELECT COUNT(*) FROM '+name).fetchone()[0]
+                          for name, cols in [('payrolls',old_payroll),('payroll_days',old_days)] if cols]
+                if any(counts):
+                    raise RuntimeError('Legacy payroll history contains records in an unsupported schema. '
+                                       'Migration stopped without changing data; a backup was created. '
+                                       'A separate history migration is required.')
+                self.conn.execute('DROP TABLE IF EXISTS payroll_days')
+                self.conn.execute('DROP TABLE IF EXISTS payrolls')
             self.conn.execute('''CREATE TABLE IF NOT EXISTS payrolls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 employee_id INTEGER NOT NULL REFERENCES employees(id),
