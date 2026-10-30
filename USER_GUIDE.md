@@ -1,4 +1,4 @@
-# PayrollSystem 1.9.1 — usage
+# PayrollSystem 1.9.2 — usage
 
 ## Employees
 

@@ -1,4 +1,4 @@
-# PayrollSystem 1.9.1
+# PayrollSystem 1.9.2
 
 Local Windows application for employees, working hours and PDF payroll statements.
 
@@ -28,7 +28,7 @@ Tests and build instructions: [BUILD.md](BUILD.md). Usage: [USER_GUIDE.md](USER_
 
 The database is stored in `%LOCALAPPDATA%\PayrollSystem\payroll.db`. A verified SQLite backup is created on startup before updating an existing database. `Data > Create database backup` creates another copy; copy backups to a separate drive as well.
 
-Version 1.9.1 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
+Version 1.9.2 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
 
 Uninstall preserves the database and backups. The application never uploads payroll data. Do not commit databases, payroll documents, exports or personal examples to Git.
 
