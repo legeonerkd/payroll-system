@@ -1,14 +1,14 @@
 [Setup]
 AppName=Payroll System
-AppVersion=1.9.0
+AppVersion=1.9.1
 AppPublisher=PayrollSystem Team
-AppPublisherURL=https://github.com/yourusername/PayrollSystem
-AppSupportURL=https://github.com/yourusername/PayrollSystem/issues
-AppUpdatesURL=https://github.com/yourusername/PayrollSystem/releases
+AppPublisherURL=https://github.com/legeonerkd/payroll-system
+AppSupportURL=https://github.com/legeonerkd/payroll-system/issues
+AppUpdatesURL=https://github.com/legeonerkd/payroll-system/releases
 DefaultDirName={localappdata}\Programs\PayrollSystem
 DefaultGroupName=Payroll System
 OutputDir=output
-OutputBaseFilename=PayrollSystem_v1.9.0_Setup
+OutputBaseFilename=PayrollSystem_v1.9.1_Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=lowest
@@ -41,8 +41,7 @@ Name: "startupicon"; Description: "Run at Windows &startup"; GroupDescription: "
 [Run]
 Filename: "{app}\PayrollSystem.exe"; Description: "Launch Payroll System"; Flags: postinstall nowait skipifsilent
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{localappdata}\PayrollSystem"
+; User databases and backups are intentionally preserved during uninstall.
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);

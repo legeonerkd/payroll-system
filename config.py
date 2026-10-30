@@ -1,17 +1,9 @@
-from pathlib import Path
 import os
+from pathlib import Path
+from core.version import APP_NAME, APP_VERSION
+from core.paths import get_app_dir
 
-# ===== App Info =====
-APP_NAME = "Payroll System"
-APP_VERSION = "1.8.3"
-
-# ===== Rates =====
-FIXED_RATE = 8  # €/hour
-
-# ===== Paths =====
-# Используем LOCALAPPDATA для хранения БД (работает и в EXE)
-LOCAL_APPDATA = os.getenv("LOCALAPPDATA")
-APP_DATA_DIR = Path(LOCAL_APPDATA) / "PayrollSystem"
+FIXED_RATE = 8
+APP_DATA_DIR = Path(os.environ['PAYROLL_DATA_DIR']) if os.environ.get('PAYROLL_DATA_DIR') else get_app_dir()
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-DATABASE_PATH = APP_DATA_DIR / "payroll.db"
+DATABASE_PATH = APP_DATA_DIR / 'payroll.db'

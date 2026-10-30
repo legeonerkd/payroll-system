@@ -13,6 +13,7 @@ payroll_legacy.py
 build/
 dist/
 *.spec
+!PayrollSystem.spec
 
 # Pytest
 .pytest_cache/
@@ -26,6 +27,13 @@ salary.db
 Output/
 Payroll/
 *.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.csv
+*.pdf
 backups/
 
 # IDE
@@ -37,3 +45,5 @@ structure.txt
 
 # Plans and notes (not related to PayrollSystem)
 plans/
+.coverage
+htmlcov/

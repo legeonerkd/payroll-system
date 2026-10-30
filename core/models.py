@@ -20,8 +20,8 @@ class Employee:
             id=row["id"],
             name=row["name"],
             rate=row["rate"],
-            has_bank_account=bool(row["has_bank_account"]),
-            bank_name=row["bank_name"],
+            has_bank_account=bool(row["bank"]),
+            bank_name=row["bank"],
             iban=row["iban"],
             bic=row["bic"],
         )

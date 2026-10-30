@@ -7,6 +7,7 @@ from services.report_service import generate_payroll_pdf
 from services.payroll_service import calculate_fixed_payroll, calculate_custom_payroll
 from core.models import Employee
 from config import FIXED_RATE
+from core.validation import number
 
 DEFAULT_HOURS = 10.0
 HOUR_STEP = 0.5
@@ -31,6 +32,8 @@ class PayrollTab(ttk.Frame):
         self.net_var = tk.StringVar(value="0.00 €")
 
         self._editor = None
+        self._context = None
+        self._dirty = False
 
         self._build_ui()
         self._load_employees()
@@ -75,6 +78,7 @@ class PayrollTab(ttk.Frame):
         )
         self.employee_cb = ttk.Combobox(header, state="readonly", width=25)
         self.employee_cb.grid(row=0, column=1, sticky="w", padx=(0, 20))
+        self.employee_cb.bind('<<ComboboxSelected>>', self._employee_changed)
 
         # Period From
         ttk.Label(header, text="From:", font=("Segoe UI", 10, "bold")).grid(
@@ -180,6 +184,7 @@ class PayrollTab(ttk.Frame):
 
         # PDF Actions
         self._build_pdf_actions(right)
+        ttk.Button(right, text='Save hours (draft)', command=self._save_draft).pack(fill='x', pady=5)
 
     def _build_rate_card(self, parent):
         """Карточка Rate Type с радиокнопками"""
@@ -340,22 +345,55 @@ class PayrollTab(ttk.Frame):
 
     def _load_employees(self):
         """Загрузка списка сотрудников в combobox"""
-        current_selection = self.employee_cb.get() if self.employee_cb.get() else None
+        old = self.employee_map.get(self.employee_cb.get())
+        current_id = old['id'] if old is not None else None
         
         self.employee_map.clear()
         names = []
 
         for e in self.db.get_employees():
-            self.employee_map[e["name"]] = e
-            names.append(e["name"])
+            label = f'{e["name"]} [#{e["id"]}]'
+            self.employee_map[label] = e
+            names.append(label)
 
         self.employee_cb["values"] = names
         
         # Пытаемся восстановить предыдущий выбор
-        if current_selection and current_selection in names:
-            self.employee_cb.set(current_selection)
+        selected = next((label for label,e in self.employee_map.items() if e['id']==current_id),None)
+        if selected:
+            self.employee_cb.set(selected)
         elif names:
             self.employee_cb.current(0)
+        else:
+            self.employee_cb.set('')
+        if self._context and (not selected or self._context[0] != current_id):
+            self.tree.delete(*self.tree.get_children())
+            self.days_data.clear()
+            self._context = None
+            self._dirty = False
+            self._update_total_hours()
+        self._auto_recalculate()
+
+    def _employee_changed(self, event=None):
+        selected = self.employee_map.get(self.employee_cb.get())
+        if self._editor is not None:
+            if self._context:
+                self.employee_cb.set(next((label for label,e in self.employee_map.items() if e['id']==self._context[0]),''))
+            messagebox.showwarning('Hours editor','Finish editing hours with Enter before switching employee')
+            return
+        if self._dirty and not messagebox.askyesno('Unsaved hours', 'Discard unsaved hours and switch employee?'):
+            if self._context:
+                label = next((label for label,e in self.employee_map.items() if e['id']==self._context[0]),'')
+                self.employee_cb.set(label)
+            return
+        self._dirty = False
+        self.days_data.clear()
+        self.tree.delete(*self.tree.get_children())
+        self._context = None
+        self.utilities_var.set('0.00')
+        self.rental_var.set('0.00')
+        if selected is not None:
+            self._generate_period()
     
     def refresh_employees(self):
         """Публичный метод для обновления списка сотрудников извне"""
@@ -367,11 +405,25 @@ class PayrollTab(ttk.Frame):
 
     def _generate_period(self):
         """Генерация периода с zebra-стилем и подсветкой выходных"""
-        self.tree.delete(*self.tree.get_children())
-        self.days_data.clear()
-
+        if self._editor is not None:
+            messagebox.showwarning('Hours editor','Finish editing hours with Enter before loading a period')
+            return
         start = self.from_entry.get_date()
         end = self.to_entry.get_date()
+        selected = self.employee_map.get(self.employee_cb.get())
+        if selected is None:
+            messagebox.showwarning('Employee', 'Select an employee first')
+            return
+        if start > end or (end-start).days > 365:
+            messagebox.showerror('Period', 'Select a period of 1 to 366 days with From before To')
+            return
+        if self._dirty and not messagebox.askyesno('Unsaved hours', 'Discard unsaved hours and load this period?'):
+            return
+        stored = {r['work_date']:r['hours'] for r in self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())}
+        self.tree.delete(*self.tree.get_children())
+        self.days_data.clear()
+        self._context = (selected['id'],start.isoformat(),end.isoformat())
+        self._dirty = not bool(stored)
 
         # Configure zebra tags
         self.tree.tag_configure("odd", background="#f9f9f9")
@@ -382,7 +434,7 @@ class PayrollTab(ttk.Frame):
         row_index = 0
         while d <= end:
             is_weekend = d.weekday() in [5, 6]  # Saturday, Sunday
-            hours = 0.0 if is_weekend else DEFAULT_HOURS
+            hours = stored.get(d.isoformat(),0.0) if stored else (0.0 if is_weekend else DEFAULT_HOURS)
 
             key = d.strftime("%Y-%m-%d")
             self.days_data[key] = hours
@@ -400,7 +452,7 @@ class PayrollTab(ttk.Frame):
                 values=(
                     d.strftime("%d-%m-%Y"),
                     d.strftime("%A"),
-                    f"{hours:.1f}",
+                    f"{hours:g}",
                 ),
                 tags=(tag,),
             )
@@ -439,7 +491,7 @@ class PayrollTab(ttk.Frame):
             self.tree, from_=0, to=24, increment=HOUR_STEP, justify="center"
         )
         self._editor.delete(0, "end")
-        self._editor.insert(0, f"{value:.1f}")
+        self._editor.insert(0, f"{value:g}")
         self._editor.place(x=x, y=y, width=w, height=h)
         self._editor.focus()
 
@@ -451,21 +503,23 @@ class PayrollTab(ttk.Frame):
             return
 
         try:
-            val = float(self._editor.get())
-            val = round(val / HOUR_STEP) * HOUR_STEP
+            val = float(number(self._editor.get(), 'Hours', maximum=24))
             if val < 0:
                 val = 0.0
-        except Exception:
-            val = self.days_data.get(row_id, 0.0)
+        except ValueError as exc:
+            messagebox.showerror('Invalid hours', str(exc))
+            self._editor.focus()
+            return
 
         self.days_data[row_id] = val
+        self._dirty = True
 
         values = list(self.tree.item(row_id, "values"))
-        values[2] = f"{val:.1f}"
+        values[2] = f"{val:g}"
         self.tree.item(row_id, values=values)
 
-        self._editor.destroy()
-        self._editor = None
+        editor,self._editor = self._editor,None
+        editor.destroy()
 
         self._update_total_hours()
         self._auto_recalculate()
@@ -492,13 +546,18 @@ class PayrollTab(ttk.Frame):
     def _auto_recalculate(self):
         """Автоматический пересчёт Net при изменении параметров"""
         if not self.days_data:
+            self.gross_var.set('0.00 €')
+            self.net_var.set('0.00 €')
+            self.deductions_var.set('0.00 €')
             return
 
         name = self.employee_cb.get()
         if not name:
             return
 
-        emp_data = self.employee_map[name]
+        emp_data = self.employee_map.get(name)
+        if emp_data is None:
+            return
         emp = Employee(
             id=emp_data["id"],
             name=emp_data["name"],
@@ -506,14 +565,16 @@ class PayrollTab(ttk.Frame):
         )
 
         try:
-            utilities = float(self.utilities_var.get() or 0)
+            utilities = float(number(self.utilities_var.get() or 0, 'Utilities deduction'))
         except ValueError:
-            utilities = 0.0
+            self.net_var.set('Invalid deduction')
+            return
 
         try:
-            rental = float(self.rental_var.get() or 0)
+            rental = float(number(self.rental_var.get() or 0, 'Rental deduction'))
         except ValueError:
-            rental = 0.0
+            self.net_var.set('Invalid deduction')
+            return
 
         # Calculate
         if self.rate_mode.get() == "fixed":
@@ -574,30 +635,47 @@ class PayrollTab(ttk.Frame):
 
         emp = self.employee_map[name]
 
-        rows = []
-        for iid in self.tree.get_children():
-            date, day, hours = self.tree.item(iid)["values"]
-            rows.append((date, day, hours))
-        
-        # Сохраняем часы в базу данных
-        self._save_hours_to_database(emp["id"])
+        if self._editor is not None:
+            raise ValueError('Finish editing hours with Enter before creating a PDF')
+        context = (emp['id'], self.from_entry.get_date().isoformat(), self.to_entry.get_date().isoformat())
+        if not self.days_data or self._context != context:
+            raise ValueError('Generate the selected period before creating a PDF')
+        rows = [(day, '', hours) for day,hours in sorted(self.days_data.items())]
+        utilities = number(self.utilities_var.get() or 0, 'Utilities deduction')
+        rental = number(self.rental_var.get() or 0, 'Rental deduction')
 
         pdf_path = generate_payroll_pdf(
             employee_name=emp["name"],
             employee_rate=emp["rate"],
             rows=rows,
             rate_mode=self.rate_mode.get(),
-            utilities=self.utilities_var.get() or None,
-            rental=self.rental_var.get() or None,
+            utilities=str(utilities),
+            rental=str(rental),
             period_from=self.from_entry.get(),
             period_to=self.to_entry.get(),
             bank_name=emp["bank"] if "bank" in emp.keys() else None,
             iban=emp["iban"] if "iban" in emp.keys() else None,
             bic=emp["bic"] if "bic" in emp.keys() else None,
             action=action,
+            employee_id=emp['id'],
         )
-
+        if action != 'preview':
+            self.db.save_payroll(emp['id'], self.days_data, self.rate_mode.get(), context[1], context[2],
+                                 utilities=str(utilities),rental=str(rental),pdf_path=pdf_path)
+            self._dirty = False
         return pdf_path
+
+    def _save_draft(self):
+        try:
+            emp = self.employee_map.get(self.employee_cb.get())
+            context = None if emp is None else (emp['id'],self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat())
+            if not self.days_data or context != self._context or self._editor is not None:
+                raise ValueError('Generate this period and finish editing before saving hours')
+            self._save_hours_to_database(emp['id'])
+            self._dirty = False
+            messagebox.showinfo('Saved', 'Draft hours saved. Save the PDF to record the final payroll and deductions.')
+        except Exception as exc:
+            messagebox.showerror('Save hours',str(exc))
     
     def _save_hours_to_database(self, emp_id: int):
         """Сохранение часов в базу данных"""

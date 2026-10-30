@@ -1,258 +1,203 @@
-"""
-Сервис для импорта данных из Excel файлов
-
-Поддерживаемый формат Excel:
-- Колонка A: Имя сотрудника (Employee Name)
-- Колонка B: Ставка €/h (Hourly Rate)
-- Колонка C: Банк (Bank) - опционально
-- Колонка D: IBAN - опционально
-- Колонка E: BIC - опционально
-- Колонки F+: Даты с количеством часов (формат: DD-MM-YYYY)
-
-Пример:
-| Employee Name | Hourly Rate | Bank | IBAN | BIC | 01-05-2026 | 02-05-2026 | ... |
-|---------------|-------------|------|------|-----|------------|------------|-----|
-| John Doe      | 12.50       | ABC  | DE.. | .. | 8.0        | 10.0       | ... |
-"""
-
-import pandas as pd
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+"""Strict XLSX parsing and all-or-nothing batch processing."""
+from datetime import datetime, date
+from decimal import Decimal
+from pathlib import Path
 import re
+import pandas as pd
+
+from core.validation import employee_values, number
+from services.payroll_service import calculate_payroll
+from core.models import Employee
+from services.report_service import generate_payroll_pdf
 
 
-class ExcelImportError(Exception):
-    """Ошибка импорта Excel файла"""
+class ExcelImportError(ValueError):
     pass
 
 
 class EmployeeData:
-    """Данные сотрудника из Excel"""
-    def __init__(self, name: str, rate: float, bank: str = None, iban: str = None, bic: str = None):
-        self.name = name
-        self.rate = rate
-        self.bank = bank
-        self.iban = iban
-        self.bic = bic
-        self.hours_by_date: Dict[str, float] = {}  # {YYYY-MM-DD: hours}
-    
-    def add_hours(self, date: str, hours: float):
-        """Добавить часы для даты"""
-        self.hours_by_date[date] = hours
-    
-    def get_total_hours(self) -> float:
-        """Общее количество часов"""
-        return sum(self.hours_by_date.values())
-    
-    def get_date_range(self) -> Tuple[str, str]:
-        """Получить диапазон дат (начало, конец)"""
-        if not self.hours_by_date:
-            return None, None
-        dates = sorted(self.hours_by_date.keys())
-        return dates[0], dates[-1]
+    def __init__(self, name, rate, bank=None, iban=None, bic=None, employee_id=None):
+        self.name, self.rate = employee_values(name, rate)
+        self.bank, self.iban, self.bic = bank, iban, bic
+        self.employee_id = employee_id
+        self.hours_by_date = {}
+
+    def add_hours(self, day, hours):
+        self.hours_by_date[day] = float(number(hours, 'Hours', maximum=24))
+
+    def get_total_hours(self):
+        return float(sum((Decimal(str(h)) for h in self.hours_by_date.values()), Decimal(0)))
+
+    def get_date_range(self):
+        days = sorted(self.hours_by_date)
+        return (days[0], days[-1]) if days else (None, None)
 
 
-def parse_date_column(col_name: str) -> Optional[str]:
-    """
-    Парсит название колонки и извлекает дату
-    Поддерживаемые форматы: DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
-    Возвращает дату в формате YYYY-MM-DD или None
-    """
-    # Убираем пробелы
-    col_name = str(col_name).strip()
-    
-    # Паттерны для разных форматов дат
-    patterns = [
-        r'(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})',  # DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
-        r'(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})',  # YYYY-MM-DD, YYYY/MM/DD
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, col_name)
-        if match:
-            groups = match.groups()
-            # Определяем формат
-            if len(groups[0]) == 4:  # YYYY-MM-DD
-                year, month, day = groups
-            else:  # DD-MM-YYYY
-                day, month, year = groups
-            
-            try:
-                # Проверяем валидность даты
-                date_obj = datetime(int(year), int(month), int(day))
-                return date_obj.strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-    
+def parse_date_column(value):
+    if isinstance(value, (datetime, date)):
+        return value.strftime('%Y-%m-%d')
+    text = str(value).strip()
+    for fmt in ('%d-%m-%Y','%d/%m/%Y','%d.%m.%Y','%Y-%m-%d','%Y/%m/%d','%Y.%m.%d'):
+        try:
+            return datetime.strptime(text, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            pass
     return None
 
 
-def validate_excel_structure(df: pd.DataFrame) -> Tuple[bool, str]:
-    """
-    Валидация структуры Excel файла
-    Возвращает (is_valid, error_message)
-    """
-    if df.empty:
-        return False, "Файл пустой"
-    
-    # Проверяем минимальное количество колонок
-    if df.shape[1] < 6:  # Минимум: Name, Rate, Bank, IBAN, BIC + 1 дата
-        return False, f"Недостаточно колонок. Найдено {df.shape[1]}, требуется минимум 6"
-    
-    # Проверяем наличие обязательных колонок
-    columns = df.columns.tolist()
-    
-    # Первые 2 колонки должны быть Name и Rate
-    first_col = str(columns[0]).lower()
-    second_col = str(columns[1]).lower()
-    
-    if not any(keyword in first_col for keyword in ['name', 'employee', 'имя', 'сотрудник']):
-        return False, f"Первая колонка должна быть 'Employee Name', найдено: {columns[0]}"
-    
-    if not any(keyword in second_col for keyword in ['rate', 'ставка', 'hourly']):
-        return False, f"Вторая колонка должна быть 'Hourly Rate', найдено: {columns[1]}"
-    
-    # Проверяем наличие хотя бы одной колонки с датой
-    date_columns = [col for col in columns[5:] if parse_date_column(col)]
-    if not date_columns:
-        return False, "Не найдено ни одной колонки с датами (формат: DD-MM-YYYY)"
-    
-    return True, "OK"
+def _date_columns(df):
+    result = {}
+    seen = set()
+    for col in df.columns[5:]:
+        if str(col).strip().casefold() == 'employee id':
+            continue
+        day = parse_date_column(col)
+        # pandas suffixes repeated headers with .1, .2, etc.
+        if day is None and parse_date_column(re.sub(r'\.\d+$','',str(col))):
+            raise ExcelImportError(f'Duplicate date column: {col}')
+        if day is None:
+            raise ExcelImportError(f'Unknown date column: {col}')
+        if day in seen:
+            raise ExcelImportError(f'Duplicate date: {day}')
+        seen.add(day)
+        result[col] = day
+    return result
 
 
-def import_excel_file(filepath: str) -> List[EmployeeData]:
-    """
-    Импорт данных из Excel файла
-    
-    Args:
-        filepath: Путь к Excel файлу
-    
-    Returns:
-        Список объектов EmployeeData
-    
-    Raises:
-        ExcelImportError: При ошибке чтения или валидации
-    """
+def validate_excel_structure(df):
+    if df.empty or df.shape[1] < 6:
+        return False, 'Expected Name, Rate, Bank, IBAN, BIC and at least one date column'
+    first, second = (str(c).strip().casefold() for c in df.columns[:2])
+    if not any(k in first for k in ('name','employee','имя','сотрудник')):
+        return False, 'First column must be Employee Name'
+    if not any(k in second for k in ('rate','hourly','ставка')):
+        return False, 'Second column must be Hourly Rate'
     try:
-        # Читаем Excel файл
-        df = pd.read_excel(filepath, engine='openpyxl')
-        
-        # Валидация структуры
-        is_valid, error_msg = validate_excel_structure(df)
-        if not is_valid:
-            raise ExcelImportError(f"Неверная структура файла: {error_msg}")
-        
-        employees = []
-        columns = df.columns.tolist()
-        
-        # Определяем колонки с датами (начиная с 6-й колонки)
-        date_columns = {}
-        for col in columns[5:]:
-            parsed_date = parse_date_column(col)
-            if parsed_date:
-                date_columns[col] = parsed_date
-        
-        if not date_columns:
-            raise ExcelImportError("Не найдено колонок с датами")
-        
-        # Обрабатываем каждую строку
+        if not _date_columns(df):
+            return False, 'No date columns found'
+    except ExcelImportError as exc:
+        return False, str(exc)
+    return True, 'OK'
+
+
+def import_excel_file(filepath):
+    if Path(filepath).suffix.lower() != '.xlsx':
+        raise ExcelImportError('Only .xlsx files are supported; save legacy .xls files as .xlsx first')
+    try:
+        df = pd.read_excel(filepath, engine='openpyxl', dtype=object)
+        valid, reason = validate_excel_structure(df)
+        if not valid:
+            raise ExcelImportError(reason)
+        columns = _date_columns(df)
+        id_columns = [c for c in df.columns if str(c).strip().casefold()=='employee id']
+        employees, identities = [], set()
+        def optional(value):
+            return None if pd.isna(value) or not str(value).strip() else str(value).strip()
         for idx, row in df.iterrows():
-            # Пропускаем пустые строки
-            if pd.isna(row.iloc[0]) or str(row.iloc[0]).strip() == '':
+            if optional(row.iloc[0]) is None:
                 continue
-            
-            # Читаем основные данные
-            name = str(row.iloc[0]).strip()
-            
             try:
-                rate = float(row.iloc[1])
-                if rate <= 0:
-                    raise ValueError(f"Ставка должна быть положительным числом")
-            except (ValueError, TypeError) as e:
-                raise ExcelImportError(f"Строка {idx + 2}: неверная ставка для '{name}': {row.iloc[1]}")
-            
-            # Опциональные данные
-            bank = str(row.iloc[2]).strip() if not pd.isna(row.iloc[2]) else None
-            iban = str(row.iloc[3]).strip() if not pd.isna(row.iloc[3]) else None
-            bic = str(row.iloc[4]).strip() if not pd.isna(row.iloc[4]) else None
-            
-            # Создаём объект сотрудника
-            employee = EmployeeData(name, rate, bank, iban, bic)
-            
-            # Читаем часы по датам
-            for col_name, date_str in date_columns.items():
-                hours_value = row[col_name]
-                
-                # Пропускаем пустые ячейки
-                if pd.isna(hours_value) or str(hours_value).strip() == '':
-                    continue
-                
-                try:
-                    hours = float(hours_value)
-                    if hours < 0:
-                        raise ValueError("Часы не могут быть отрицательными")
-                    if hours > 24:
-                        raise ValueError("Часы не могут быть больше 24")
-                    
-                    if hours > 0:  # Сохраняем только ненулевые значения
-                        employee.add_hours(date_str, hours)
-                
-                except (ValueError, TypeError) as e:
-                    raise ExcelImportError(
-                        f"Строка {idx + 2}, колонка '{col_name}': "
-                        f"неверное значение часов для '{name}': {hours_value}"
-                    )
-            
-            # Добавляем сотрудника только если есть хотя бы одна запись часов
-            if employee.hours_by_date:
-                employees.append(employee)
-        
+                employee_id = None
+                if id_columns and optional(row[id_columns[0]]) is not None:
+                    numeric_id = number(row[id_columns[0]],'Employee ID',minimum=1)
+                    if numeric_id != numeric_id.to_integral_value():
+                        raise ValueError('Employee ID must be an integer')
+                    employee_id = int(numeric_id)
+                employee = EmployeeData(row.iloc[0], row.iloc[1], *(optional(row.iloc[i]) for i in (2,3,4)),employee_id=employee_id)
+                identity = ('id',employee_id) if employee_id is not None else ('name',employee.name.casefold())
+                if identity in identities:
+                    raise ValueError('Duplicate employee row; use separate Employee IDs for namesakes')
+                identities.add(identity)
+                for col, day in columns.items():
+                    value = row[col]
+                    if optional(value) is not None:
+                        employee.add_hours(day,value)
+                if employee.hours_by_date:
+                    employees.append(employee)
+            except ValueError as exc:
+                raise ExcelImportError(f'Row {idx+2}: {exc}') from exc
         if not employees:
-            raise ExcelImportError("Не найдено ни одного сотрудника с данными о часах")
-        
+            raise ExcelImportError('No employees with explicitly entered hours were found')
         return employees
-    
-    except pd.errors.EmptyDataError:
-        raise ExcelImportError("Файл пустой или поврежден")
-    except FileNotFoundError:
-        raise ExcelImportError(f"Файл не найден: {filepath}")
-    except Exception as e:
-        if isinstance(e, ExcelImportError):
-            raise
-        raise ExcelImportError(f"Ошибка чтения файла: {str(e)}")
+    except ExcelImportError:
+        raise
+    except Exception as exc:
+        raise ExcelImportError(f'Could not read XLSX: {exc}') from exc
 
 
-def get_import_summary(employees: List[EmployeeData]) -> Dict:
-    """
-    Получить сводку по импортированным данным
-    
-    Returns:
-        Dict с информацией: количество сотрудников, диапазон дат, общие часы
-    """
-    if not employees:
-        return {
-            'employee_count': 0,
-            'total_hours': 0,
-            'date_range': (None, None),
-            'unique_dates': set()
-        }
-    
-    total_hours = sum(emp.get_total_hours() for emp in employees)
-    
-    # Собираем все уникальные даты
-    all_dates = set()
-    for emp in employees:
-        all_dates.update(emp.hours_by_date.keys())
-    
-    if all_dates:
-        sorted_dates = sorted(all_dates)
-        date_range = (sorted_dates[0], sorted_dates[-1])
-    else:
-        date_range = (None, None)
-    
-    return {
-        'employee_count': len(employees),
-        'total_hours': total_hours,
-        'date_range': date_range,
-        'unique_dates': all_dates
-    }
+def get_import_summary(employees):
+    dates = {d for emp in employees for d in emp.hours_by_date}
+    return {'employee_count':len(employees), 'total_hours':sum(e.get_total_hours() for e in employees),
+            'date_range':(min(dates),max(dates)) if dates else (None,None), 'unique_dates':dates}
+
+
+def process_import(db, employees, options, progress=None):
+    """Run on a connection created in this same worker; never access Tk here."""
+    if not options['save_to_db'] and not options['create_pdf']:
+        raise ExcelImportError('Select saving hours or generating PDFs')
+    utilities = str(number(options.get('utilities',0),'Utilities deduction'))
+    rental = str(number(options.get('rental',0),'Rental deduction'))
+    files = []
+    try:
+        with db.transaction():
+            # Preflight the entire batch before creating employees or documents.
+            plans = []
+            resolved_ids = set()
+            new_names = set()
+            for emp in employees:
+                if emp.employee_id is not None:
+                    existing = db.get_employee(emp.employee_id)
+                    if existing['archived']:
+                        raise ExcelImportError(f'Employee #{emp.employee_id} is archived')
+                else:
+                    matches = [e for e in db.get_employees(include_archived=True) if e['name'].strip().casefold()==emp.name.casefold()]
+                    if len(matches)>1 or (matches and matches[0]['archived']):
+                        raise ExcelImportError(f'Ambiguous or archived employee: {emp.name}. Use Employee ID.')
+                    existing = matches[0] if matches else None
+                if existing is not None:
+                    if existing['id'] in resolved_ids:
+                        raise ExcelImportError('Multiple import rows resolve to the same employee')
+                    resolved_ids.add(existing['id'])
+                    if (options['save_to_db'] and options['create_pdf'] and not options.get('update_existing',True)
+                        and options['rate_mode']=='custom' and Decimal(str(existing['rate']))!=Decimal(str(emp.rate))):
+                        raise ExcelImportError('Excel rate differs from the stored rate; enable employee updates or use PDF-only import')
+                elif emp.name.casefold() in new_names:
+                    raise ExcelImportError('Duplicate new employee name in batch')
+                else:
+                    new_names.add(emp.name.casefold())
+                # Explicit empty bank fields preserve existing details.
+                details = {key:getattr(emp,key) if getattr(emp,key) is not None else (existing[key] if existing is not None else None)
+                           for key in ('bank','iban','bic')}
+                if existing is not None and not options.get('update_existing',True):
+                    details = {key:existing[key] for key in details}
+                calculate_payroll(Employee(0,emp.name,emp.rate),emp.hours_by_date,options['rate_mode'],utilities=utilities,housing=rental)
+                plans.append((emp,existing,details))
+            for index,(emp,existing,details) in enumerate(plans,1):
+                # A PDF-only import does not mutate the employee database.
+                eid = existing['id'] if existing is not None else None
+                if options['save_to_db']:
+                    if existing is None:
+                        eid = db.add_employee(emp.name,emp.rate,**details)
+                    elif options.get('update_existing',True):
+                        db.update_employee(eid,emp.name,emp.rate,**details)
+                path = None
+                if options['create_pdf']:
+                    start,end=emp.get_date_range()
+                    display_name = existing['name'] if existing is not None and not options.get('update_existing',True) else emp.name
+                    path=generate_payroll_pdf(display_name,emp.rate,[(d,'',h) for d,h in sorted(emp.hours_by_date.items())],
+                        options['rate_mode'],utilities,rental,start,end,details['bank'],details['iban'],details['bic'],
+                        action='save',employee_id=eid)
+                    files.append(path)
+                if options['save_to_db']:
+                    if path:
+                        db.save_payroll(eid,emp.hours_by_date,options['rate_mode'],*emp.get_date_range(),utilities=utilities,rental=rental,pdf_path=path)
+                    else:
+                        db.save_hours_batch(eid,emp.hours_by_date)
+                if progress:
+                    progress(index,len(plans))
+    except Exception:
+        # Every filename above is unique and was created by this attempt.
+        for filename in files:
+            Path(filename).unlink(missing_ok=True)
+        raise
+    return {'employees':len(employees),'files':files}
