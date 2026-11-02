@@ -845,3 +845,13 @@ def test_journal_and_closed_period_windows_are_read_only_and_reopen_is_confirmed
     monkeypatch.setattr('ui.closed_periods.messagebox.askyesno',lambda *a,**k:True)
     periods._reopen();assert not db.period_is_closed(eid,'2026-11-02','2026-11-02') and changes==[True]
     journal.destroy();periods.destroy()
+
+
+def test_future_card_changes_do_not_mark_closed_period_unsaved(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path);tab._call_both_pdfs()
+    original=[dict(p) for p in db.get_payrolls()]
+    db.close_period(eid,'2026-11-02','2026-11-02')
+    db.update_employee(eid,'Updated',16,bank_account_state='no',rental_amount=75)
+    tab.refresh_employees()
+    assert not tab.has_unsaved_changes() and tab.save_status_var.get()=='Closed · read-only'
+    assert tab.net_var.get()=='See History' and [dict(p) for p in db.get_payrolls()]==original

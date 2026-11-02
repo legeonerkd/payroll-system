@@ -390,7 +390,7 @@ class PayrollTab(ttk.Frame):
             self.employee_cb.set(selected)
             updated=self.employee_map[selected]
             keys=('name',)+ (('rate',) if self.rate_mode.get()=='custom' else ())
-            if old is not None and self.days_data and (any(old[key]!=updated[key] for key in keys) or payment_details(old)!=payment_details(updated)
+            if old is not None and self.days_data and not self._is_closed() and (any(old[key]!=updated[key] for key in keys) or payment_details(old)!=payment_details(updated)
                 or rental_for_rate(old,self.rate_mode.get())!=rental_for_rate(updated,self.rate_mode.get())
                 or deduction_mode(old)!=deduction_mode(updated)):
                 self._payroll_dirty=True
