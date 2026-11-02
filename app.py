@@ -46,6 +46,8 @@ class PayrollApp(tk.Tk):
 
 
         # ---------- NOTEBOOK ----------
+        navigation=ttk.Frame(self,style='App.TFrame',padding=(20,12,20,4))
+        navigation.pack(fill='x')
         notebook = ttk.Notebook(self)
         self.notebook=notebook
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
@@ -56,6 +58,17 @@ class PayrollApp(tk.Tk):
         self.payroll_tab = PayrollTab(notebook, self.db,on_edit_employee=self._edit_employee_from_payroll)
         notebook.add(self.payroll_tab, text="Payroll")
         notebook.select(self.payroll_tab)
+        self.navigation_buttons=[]
+        for index,label in enumerate(('Employees','Payroll')):
+            button=ttk.Button(navigation,text=label,style='Navigation.TButton',
+                              command=lambda i=index:self.notebook.select(i))
+            button.pack(side='left',padx=(0,6))
+            button.bind('<Left>',lambda event,i=index:self._focus_navigation(1-i))
+            button.bind('<Right>',lambda event,i=index:self._focus_navigation(1-i))
+            self.navigation_buttons.append(button)
+        notebook.bind('<<NotebookTabChanged>>',self._update_navigation)
+        self.bind('<Control-Tab>',lambda event:self._focus_navigation(1-self.notebook.index('current')))
+        self._update_navigation()
 
         # ---------- MENU ----------
         menubar = tk.Menu(self)
@@ -112,6 +125,16 @@ class PayrollApp(tk.Tk):
         self.employee_count_label.pack(side="right", padx=10, pady=4)
         
         self._update_status()
+
+    def _update_navigation(self,event=None):
+        selected=self.notebook.index('current')
+        for index,button in enumerate(self.navigation_buttons):
+            button.configure(style='NavigationActive.TButton' if index==selected else 'Navigation.TButton')
+
+    def _focus_navigation(self,index):
+        self.notebook.select(index)
+        self.navigation_buttons[index].focus_set()
+        return 'break'
 
     def _update_status(self):
         """Обновление статус-бара"""

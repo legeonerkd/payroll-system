@@ -25,11 +25,11 @@ def setup_styles(root):
                     lightcolor=COLORS['card'],darkcolor=COLORS['card'],borderwidth=1,relief='solid')
     style.configure('TLabel',background=COLORS['card'],foreground=COLORS['text'],font=('Segoe UI',10))
     style.configure('Muted.TLabel',foreground=COLORS['muted'])
-    style.configure('TNotebook',background=COLORS['bg'],borderwidth=0,tabmargins=(0,0,0,10))
-    style.configure('TNotebook.Tab',padding=(18,9),font=('Segoe UI',10,'bold'),background=COLORS['bg'],
-                    foreground=COLORS['muted'],borderwidth=0,lightcolor=COLORS['bg'],darkcolor=COLORS['bg'])
-    style.map('TNotebook.Tab',background=[('selected',COLORS['card']),('active','#EAF0F8')],
-              foreground=[('selected',COLORS['accent']),('active',COLORS['text'])])
+    # Navigation is rendered by ordinary buttons above the page container.
+    style.element_create('FlatNotebook.client','from','clam','Frame.border')
+    style.layout('TNotebook',[('FlatNotebook.client',{'sticky':'nswe'})])
+    style.layout('TNotebook.Tab',[])
+    style.configure('TNotebook',background=COLORS['bg'],borderwidth=0,tabmargins=0)
     style.configure('TButton',font=('Segoe UI',9),padding=(12,7),background=COLORS['card'],
                     foreground=COLORS['text'],bordercolor=COLORS['border'],borderwidth=1,relief='solid',
                     lightcolor=COLORS['card'],darkcolor=COLORS['card'],focuscolor=COLORS['accent'])
@@ -42,6 +42,14 @@ def setup_styles(root):
                   foreground=[('disabled',COLORS['disabled_text']),('!disabled','white')],
                   bordercolor=[('disabled',COLORS['border']),('!disabled',COLORS['accent'])])
     style.configure('Warning.TButton',foreground=COLORS['accent'])
+    style.configure('Navigation.TButton',font=('Segoe UI',10,'bold'),padding=(22,9),
+                    background=COLORS['bg'],bordercolor=COLORS['bg'],foreground=COLORS['muted'])
+    style.map('Navigation.TButton',background=[('active','#E7EEF9'),('!active',COLORS['bg'])],
+              bordercolor=[('focus',COLORS['accent']),('!focus',COLORS['bg'])])
+    style.configure('NavigationActive.TButton',font=('Segoe UI',10,'bold'),padding=(22,9),
+                    background=COLORS['accent'],bordercolor=COLORS['accent'],foreground='white')
+    style.map('NavigationActive.TButton',background=[('active',COLORS['accent_hover']),('!active',COLORS['accent'])],
+              foreground=[('!disabled','white')],bordercolor=[('focus','#163C7A'),('!focus',COLORS['accent'])])
     style.configure('Neutral.TButton',foreground=COLORS['neutral'])
     style.configure('Danger.TButton',foreground=COLORS['negative'])
     style.map('Danger.TButton',foreground=[('disabled',COLORS['disabled_text']),('!disabled',COLORS['negative'])])
