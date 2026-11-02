@@ -52,7 +52,7 @@ class PayrollApp(tk.Tk):
         self.notebook=notebook
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._on_employees_changed)
+        self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._on_employees_changed,archive_warning=self._archive_warning)
         notebook.add(self.employees_tab, text="Employees")
 
         self.payroll_tab = PayrollTab(notebook, self.db)
@@ -127,6 +127,12 @@ class PayrollApp(tk.Tk):
         self.payroll_tab.refresh_employees()
         self.employees_tab._load()
 
+    def _archive_warning(self,emp_id):
+        tab=self.payroll_tab
+        if tab._context and tab._context[0]==emp_id and (tab.has_unsaved_changes() or tab._editor is not None):
+            return 'Unsaved Payroll hours and settings for this employee will be discarded.'
+        return ''
+
     def _backup(self):
         try:
             path=backup_db(DATABASE_PATH)
@@ -152,7 +158,7 @@ class PayrollApp(tk.Tk):
         for window in list(self.winfo_children()):
             if isinstance(window,tk.Toplevel):window.destroy()
         self.employees_tab.destroy();self.payroll_tab.destroy()
-        self.employees_tab=EmployeesTab(self.notebook,self.db,on_change=self._on_employees_changed)
+        self.employees_tab=EmployeesTab(self.notebook,self.db,on_change=self._on_employees_changed,archive_warning=self._archive_warning)
         self.notebook.add(self.employees_tab,text='Employees')
         self.payroll_tab=PayrollTab(self.notebook,self.db)
         self.notebook.add(self.payroll_tab,text='Payroll');self.notebook.select(self.payroll_tab)
@@ -184,7 +190,7 @@ class PayrollApp(tk.Tk):
         if any(isinstance(w,ExcelImportWindow) and w._running for w in self.winfo_children()):
             messagebox.showinfo('Import running','Wait for the import to finish before closing the application.')
             return
-        if (self.payroll_tab.has_unsaved_changes() or self.payroll_tab._editor is not None) and not messagebox.askyesno('Unsaved changes','Close and discard unsaved hours and payroll settings?'):
+        if (self.employees_tab.has_unsaved_changes() or self.payroll_tab.has_unsaved_changes() or self.payroll_tab._editor is not None) and not messagebox.askyesno('Unsaved changes','Close and discard unsaved employee details, hours and payroll settings?'):
             return
         self.db.close()
         self.destroy()

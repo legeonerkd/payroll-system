@@ -174,10 +174,12 @@ class Database:
                                     (name, rate, bank, iban, bic))
             return cur.lastrowid
 
-    def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None):
+    def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None,*,expected=None):
         name, rate = employee_values(name, rate)
         with self.transaction():
-            self.get_employee(emp_id)
+            current=self.get_employee(emp_id)
+            if expected is not None and (current['archived'] or any(current[key]!=expected.get(key) for key in ('name','rate','bank','iban','bic'))):
+                raise ValueError('Employee details changed after this form was loaded. Clear and select the employee again before updating.')
             self.conn.execute('UPDATE employees SET name=?,rate=?,bank=?,iban=?,bic=? WHERE id=?',
                               (name, rate, bank, iban, bic, emp_id))
 

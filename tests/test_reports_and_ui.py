@@ -331,6 +331,147 @@ def test_history_race_removes_only_newly_generated_pdf(ui,monkeypatch,tmp_path):
     assert not pdf.exists() and len(db.get_payrolls())==1 and tab.has_unsaved_changes()
 
 
+@pytest.mark.parametrize('field',['rate','name','bank'])
+def test_employee_card_refresh_marks_changed_calculation_unsaved(ui,monkeypatch,field):
+    tab,db,first,_=ui
+    select(tab,first);tab._generate_period()
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save')
+    before=dict(db.get_payrolls()[0]);hours=dict(tab.days_data)
+    if field=='rate':db.update_employee_rate(first,30)
+    elif field=='name':db.update_employee_name(first,'Renamed')
+    else:db.update_employee_bank(first,True,'Changed bank','TEST','TEST')
+    tab.refresh_employees()
+    assert tab.has_unsaved_changes() and tab.save_status_var.get()=='Unsaved changes'
+    assert tab.days_data==hours and dict(db.get_payrolls()[0])==before
+
+
+def test_unrelated_employee_refresh_keeps_saved_status(ui,monkeypatch):
+    tab,db,first,second=ui
+    select(tab,first);tab._generate_period()
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save');db.update_employee_rate(second,50);tab.refresh_employees()
+    assert not tab.has_unsaved_changes() and tab.save_status_var.get()=='Payroll saved'
+
+
+def test_searching_employees_clears_stale_details(ui):
+    from ui.employees_tab import EmployeesTab
+    tab,db,first,_=ui
+    editor=EmployeesTab(tab.winfo_toplevel(),db)
+    editor.tree.selection_set(str(first));editor._on_select(None)
+    assert editor.selected_id==first and editor.name_var.get()
+    editor.search_var.set('no matching employee')
+    tab.winfo_toplevel().update()
+    assert editor.selected_id is None
+    assert editor.name_var.get()=='' and editor.bank_var.get()==''
+    assert not editor.tree.get_children()
+    editor.destroy()
+
+
+def test_employee_search_cancel_keeps_edits_and_active_filter(ui,monkeypatch):
+    from ui.employees_tab import EmployeesTab
+    tab,db,first,_=ui;editor=EmployeesTab(tab.winfo_toplevel(),db)
+    editor.tree.selection_set(str(first));editor._on_select(None)
+    editor.name_var.set('Unsaved name')
+    monkeypatch.setattr('ui.employees_tab.messagebox.askyesno',lambda *a,**k:False)
+    editor.search_var.set('another query')
+    assert editor.search_var.get()=='' and editor.selected_id==first
+    assert editor.name_var.get()=='Unsaved name' and len(editor.tree.get_children())==2
+    monkeypatch.setattr('ui.employees_tab.messagebox.askyesno',lambda *a,**k:True)
+    editor.search_var.set('no match')
+    assert not editor.tree.get_children() and editor.name_var.get()==''
+    editor._load()
+    assert not editor.tree.get_children()
+    editor.destroy()
+
+
+def test_employee_switch_cancel_and_clear_preserve_or_discard_edits(ui,monkeypatch):
+    from ui.employees_tab import EmployeesTab
+    tab,db,first,second=ui;editor=EmployeesTab(tab.winfo_toplevel(),db)
+    editor.tree.selection_set(str(first));editor._on_select(None)
+    editor.bank_var.set('Unsaved bank')
+    monkeypatch.setattr('ui.employees_tab.messagebox.askyesno',lambda *a,**k:False)
+    editor.tree.selection_set(str(second));editor._on_select(None)
+    assert editor.tree.selection()==(str(first),) and editor.selected_id==first
+    assert editor.bank_var.get()=='Unsaved bank'
+    editor._request_clear()
+    assert editor.bank_var.get()=='Unsaved bank'
+    monkeypatch.setattr('ui.employees_tab.messagebox.askyesno',lambda *a,**k:True)
+    editor._request_clear()
+    assert editor.selected_id is None and not editor.has_unsaved_changes()
+    editor.destroy()
+
+
+def test_archive_warning_mentions_unsaved_payroll_and_uses_saved_name(ui,monkeypatch):
+    from ui.employees_tab import EmployeesTab
+    from app import PayrollApp
+    from types import SimpleNamespace
+    tab,db,first,_=ui;select(tab,first);tab._generate_period()
+    owner=SimpleNamespace(payroll_tab=tab)
+    editor=EmployeesTab(tab.winfo_toplevel(),db,archive_warning=lambda eid:PayrollApp._archive_warning(owner,eid))
+    editor.tree.selection_set(str(first));editor._on_select(None)
+    editor.name_var.set('Unsaved replacement name')
+    questions=[]
+    monkeypatch.setattr('ui.employees_tab.messagebox.askyesno',lambda title,text,**k:questions.append(text) or False)
+    editor._delete()
+    assert 'Unsaved Payroll' in questions[0] and 'Unsaved replacement name' not in questions[0]
+    assert not db.get_employee(first)['archived'] and tab.days_data
+    editor.destroy()
+
+
+@pytest.mark.parametrize('external_change',['bank','archive'])
+def test_external_employee_change_cannot_be_overwritten_by_stale_form(ui,monkeypatch,external_change):
+    from ui.employees_tab import EmployeesTab
+    tab,db,first,_=ui;editor=EmployeesTab(tab.winfo_toplevel(),db)
+    editor.tree.selection_set(str(first));editor._on_select(None)
+    editor.rate_var.set('25')
+    if external_change=='bank':db.update_employee_bank(first,True,'External bank','NEW','NEW')
+    else:db.delete_employee(first)
+    errors=[]
+    monkeypatch.setattr('ui.employees_tab.messagebox.showerror',lambda *a,**k:errors.append(a))
+    editor._update()
+    assert errors
+    if external_change=='bank':assert db.get_employee(first)['bank']=='External bank'
+    else:assert db.get_employee(first)['archived']
+    assert db.get_employee(first)['rate']==20 and editor.has_unsaved_changes()
+    editor.destroy()
+
+
+def test_fixed_rate_ignores_unrelated_custom_rate_change(ui,monkeypatch):
+    tab,db,first,_=ui;select(tab,first);tab._generate_period();tab.rate_mode.set('fixed')
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save');db.update_employee_rate(first,50);tab.refresh_employees()
+    assert not tab.has_unsaved_changes() and tab.save_status_var.get()=='Payroll saved'
+
+
+def test_invalid_month_restores_filter_matching_displayed_summary(ui,monkeypatch):
+    from ui.monthly_summary import MonthlySummary
+    tab,db,first,_=ui
+    db.save_payroll(first,{'2026-05-01':8},'custom','2026-05-01','2026-05-01')
+    view=MonthlySummary(tab.winfo_toplevel(),db)
+    view.month.set('2026-05');view._load()
+    errors=[]
+    monkeypatch.setattr('ui.monthly_summary.messagebox.showerror',lambda *a,**k:errors.append(a))
+    view.month.set('2026-13');view._load()
+    assert errors and view.month.get()=='2026-05' and view.data['totals']['net']==160
+    view.destroy()
+
+
+def test_close_cancel_keeps_unsaved_employee_details(ui,monkeypatch):
+    from app import PayrollApp
+    from ui.employees_tab import EmployeesTab
+    from types import SimpleNamespace
+    tab,db,first,_=ui;editor=EmployeesTab(tab.winfo_toplevel(),db)
+    editor.name_var.set('Unsaved new employee')
+    closed=[]
+    owner=SimpleNamespace(payroll_tab=tab,employees_tab=editor,winfo_children=lambda:[],
+        db=SimpleNamespace(close=lambda:closed.append(True)),destroy=lambda:closed.append(True))
+    monkeypatch.setattr('app.messagebox.askyesno',lambda *a,**k:False)
+    PayrollApp._close(owner)
+    assert not closed and editor.name_var.get()=='Unsaved new employee'
+    editor.destroy()
+
+
 def test_switch_loads_own_hours_and_recalculates(ui):
     tab,db,first,second=ui
     db.save_hours(first,'2026-05-01',8);db.save_hours(second,'2026-05-01',6)

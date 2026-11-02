@@ -1,4 +1,4 @@
-# PayrollSystem 1.12.0 — usage
+# PayrollSystem 1.12.1 — usage
 
 ## Payroll screen
 
@@ -54,6 +54,16 @@ Imports cannot silently enter non-zero hours on excluded dates: include and save
 Locks protect redistribution; they do not prevent explicit manual edits or imports.
 
 ## Employees
+
+New / clear starts a blank employee card. Search and list refresh keep the active filter;
+searching does not leave another employee's details in Add mode. Unsaved card edits require
+confirmation before clearing, searching, switching or closing. If another window/import has
+changed or archived the loaded employee, Update is rejected until the card is reloaded.
+Copy any unsaved values you need, then clear and select the employee again.
+
+Changing the current employee's relevant name, rate or bank details marks the displayed
+Payroll calculation unsaved. Previously issued statements remain unchanged. A custom-rate
+change does not affect a calculation using Fixed rate. Archiving warns about unsaved Payroll edits.
 
 Add a name and positive hourly rate. Banking fields are optional. Each employee has a stable ID, displayed as `Name [#ID]` in Payroll. Two employees may share a name. Archive hides the employee from active lists while retaining hours and completed statements.
 

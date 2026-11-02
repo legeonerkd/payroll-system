@@ -44,6 +44,7 @@ class MonthlySummary(tk.Toplevel):
             self.data=self.db.get_month_summary(month.year,month.month)
             self.month.set(self.data['month'])
         except (ValueError,OverflowError):
+            if self.data is not None:self.month.set(self.data['month'])
             messagebox.showerror('Month','Enter a valid month as YYYY-MM',parent=self);return
         self.tree.delete(*self.tree.get_children())
         for e in self.data['rows']:
