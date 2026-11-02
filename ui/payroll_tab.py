@@ -12,7 +12,7 @@ from services.payroll_service import calculate_fixed_payroll, calculate_custom_p
 from core.models import Employee
 from core.banking import account_caption,payment_details
 from core.rental import rental_for_rate,rental_hint,utilities_for_rate,deduction_mode
-from services.paired_payroll_service import pair_plans,save_payroll_pair
+from services.paired_payroll_service import pair_plans,save_payroll_pair,print_payroll_pair,PairPrintError
 from config import FIXED_RATE
 from core.validation import number
 from services.hours_distribution import distribute_hours, MAX_DISTRIBUTED_HOURS
@@ -278,14 +278,15 @@ class PayrollTab(ttk.Frame):
         card.columnconfigure(0,weight=1)
         ttk.Button(card,text='Save hours',command=self._save_draft,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew')
         ttk.Label(card,text='Save a draft. No payroll is issued.',style='PayrollHint.TLabel').grid(row=1,column=0,sticky='w',pady=(3,8))
-        ttk.Button(card,text='Save both PDFs',command=self._save_both_pdf,style='Accent.TButton').grid(row=2,column=0,sticky='ew')
-        ttk.Button(card,text='Save payroll + PDF',command=self._save_pdf,style='PayrollSecondary.TButton').grid(row=3,column=0,sticky='ew',pady=(5,0))
+        ttk.Button(card,text='Save & print both PDFs',command=self._save_and_print_both,style='Accent.TButton').grid(row=2,column=0,sticky='ew')
+        ttk.Button(card,text='Save both PDFs',command=self._save_both_pdf,style='PayrollSecondary.TButton').grid(row=3,column=0,sticky='ew',pady=(5,0))
+        ttk.Button(card,text='Save payroll + PDF',command=self._save_pdf,style='PayrollSecondary.TButton').grid(row=4,column=0,sticky='ew',pady=(5,0))
         secondary=ttk.Frame(card,style='PayrollCard.TFrame')
-        secondary.grid(row=4,column=0,sticky='ew',pady=(5,0))
+        secondary.grid(row=5,column=0,sticky='ew',pady=(5,0))
         secondary.columnconfigure((0,1),weight=1)
         ttk.Button(secondary,text='Preview PDF',command=self._preview_pdf,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew',padx=(0,5))
         ttk.Button(secondary,text='Print',command=self._print_pdf,style='PayrollSecondary.TButton').grid(row=0,column=1,sticky='ew')
-        ttk.Label(card,text='Preview and print do not save changes.',style='PayrollHint.TLabel').grid(row=5,column=0,sticky='w',pady=(5,0))
+        ttk.Label(card,text='Preview / Print selected do not save changes.',style='PayrollHint.TLabel').grid(row=6,column=0,sticky='w',pady=(5,0))
 
 
     def _load_employees(self):
@@ -776,7 +777,19 @@ class PayrollTab(ttk.Frame):
             if result:messagebox.showinfo('Both payrolls saved','Fixed rate:\n'+result['files']['fixed']+'\n\nEmployee rate:\n'+result['files']['custom'])
         except Exception as exc:messagebox.showerror('Save both PDFs',str(exc))
 
-    def _call_both_pdfs(self):
+    def _save_and_print_both(self):
+        try:
+            result=self._call_both_pdfs(print_after=True)
+            if result:messagebox.showinfo('Both PDFs sent','Both payrolls are saved. Fixed and Employee rate PDFs were sent to the print application.')
+        except PairPrintError as exc:
+            labels={'fixed':'Fixed rate','custom':'Employee rate'}
+            sent=', '.join(labels[m] for m in exc.submitted) or 'None'
+            pending=', '.join(labels[m] for m in exc.pending)
+            messagebox.showwarning('Printing incomplete','Payrolls remain saved.\nSent: '+sent+'\nNot sent: '+pending+
+                '\n\nCheck the saved PDFs and retry only the reports not sent. Do not resend the complete pair if one was already submitted.')
+        except Exception as exc:messagebox.showerror('Save & print both PDFs',str(exc))
+
+    def _call_both_pdfs(self,*,print_after=False):
         employee=self._current_output_employee()
         if self._editor is not None:raise ValueError('Finish editing hours with Enter before creating PDFs')
         start,end=self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat()
@@ -795,6 +808,10 @@ class PayrollTab(ttk.Frame):
                                 day_rules=self._day_rules(),settings=settings)
         self._dirty=False;self._payroll_dirty=False;self._distribution_dirty=False
         self._saved_kind='payroll';self._update_save_status()
+        if print_after:
+            if any(self.db.get_payroll_full(pid)[0]['rental']>0 for pid in result['ids'].values()):
+                self._show_utilities_reminder()
+            result['submitted']=print_payroll_pair(result['files'])
         return result
 
     def _print_pdf(self):
