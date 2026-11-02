@@ -899,3 +899,64 @@ def test_cyprus_calendar_window_changes_year_without_touching_hours(tk_root,monk
     window.year.set('bad');window._load()
     assert errors and window.tree.exists('2027-03-15')
     window.destroy()
+
+
+@pytest.fixture
+def visible_hours_ui(ui):
+    tab,db,first,second=ui
+    root=tab.winfo_toplevel();root.geometry('1200x850');root.deiconify()
+    tab.pack(fill='both',expand=True);root.update();root.focus_force()
+    try:yield tab,db,first,second
+    finally:tab.pack_forget();root.withdraw()
+
+
+@pytest.mark.parametrize('column',['#1','#2','#3','#4'])
+def test_real_row_double_click_opens_editor_after_october_distribution(visible_hours_ui,monkeypatch,column):
+    tab,db,eid,_=visible_hours_ui;select(tab,eid)
+    tab.from_entry.set_date(date(2026,10,1));tab.to_entry.set_date(date(2026,10,31))
+    tab.distribution_hours_var.set('240');tab._distribute_hours()
+    assert tab.days_data['2026-10-01']==tab.days_data['2026-10-28']==0
+    assert sum(tab.days_data.values())==240
+    tab.tree.see('2026-10-28');tab.update()
+    x,y,w,h=tab.tree.bbox('2026-10-28',column);x+=w//2;y+=h//2
+    for stamp in (1000,1100):
+        tab.tree.event_generate('<ButtonPress-1>',x=x,y=y,time=stamp)
+        tab.tree.event_generate('<ButtonRelease-1>',x=x,y=y,time=stamp+20)
+        tab.update()
+    assert tab._editor is not None and tab._editor.winfo_ismapped()
+    tab._editor.delete(0,'end');tab._editor.insert(0,'7')
+    tab._editor.event_generate('<Return>');tab.update()
+    assert tab._editor is None and tab.days_data['2026-10-28']==7
+    assert sum(tab.days_data.values())==247
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
+    tab._save_draft();tab._generate_period()
+    assert tab.days_data['2026-10-28']==7
+
+
+@pytest.mark.parametrize('action',['button','<Return>','<F2>'])
+def test_edit_hours_button_and_keys_open_scrolled_off_date(visible_hours_ui,action):
+    tab,db,eid,_=visible_hours_ui;select(tab,eid)
+    tab.from_entry.set_date(date(2026,10,1));tab.to_entry.set_date(date(2026,10,31))
+    tab.distribution_hours_var.set('240');tab._distribute_hours();tab.update()
+    tab.tree.selection_set('2026-10-28');tab.tree.focus('2026-10-28');tab.tree.focus_force();tab.update()
+    if action=='button':tab.edit_hours_button.invoke()
+    else:tab.tree.event_generate(action)
+    tab.update()
+    assert tab._editor is not None and tab._editor.winfo_ismapped()
+    tab._editor.delete(0,'end');tab._editor.insert(0,'9')
+    tab._editor.event_generate('<Escape>');tab.update()
+    assert tab._editor is None and tab.days_data['2026-10-28']==0
+
+
+def test_legacy_saved_holiday_is_explained_then_redistributed(ui,monkeypatch):
+    tab,db,eid,_=ui;select(tab,eid)
+    tab.from_entry.set_date(date(2026,10,1));tab.to_entry.set_date(date(2026,10,31))
+    db.save_hours(eid,'2026-10-28',10);tab._generate_period()
+    assert tab.days_data['2026-10-28']==10
+    assert 'Existing holiday hours are kept' in tab.distribution_hint.cget('text')
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
+    tab.distribution_hours_var.set('240');tab._distribute_hours()
+    assert tab.days_data['2026-10-01']==tab.days_data['2026-10-28']==0
+    assert sum(tab.days_data.values())==240
+    assert tab.distribution_hint.cget('text').startswith('Distributed 240 h.')
+    assert db.load_hours(eid,'2026-10-28','2026-10-28')[0]['hours']==10

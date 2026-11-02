@@ -1,4 +1,4 @@
-# PayrollSystem 1.17.0 — usage
+# PayrollSystem 1.17.1 — usage
 
 ## Payroll screen
 
@@ -151,7 +151,7 @@ unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.
 
-## Saved rental and utilities reminder (1.17.0)
+## Saved rental and utilities reminder (1.17.1)
 
 In Employees, set Rental / statement (€) once; 0 disables the saved rental deduction.
 The saved amount is also shown in the Employees table under Rental (€).
@@ -175,7 +175,7 @@ For an existing employee, imported name/rate/bank updates preserve the saved ren
 Schema 7 adds the saved rental field with a default of zero. A verified pre-migration backup
 is created first. Old statement deductions are not guessed as future recurring settings.
 
-## Save both PDFs (1.17.0)
+## Save both PDFs (1.17.1)
 
 Load the selected employee's period, enter utilities once (0 is valid) and click Save both PDFs.
 The app creates two separately named files, fixed and custom, with the same daily hours.
@@ -206,7 +206,7 @@ the explicit relationship; old records are not automatically guessed as pairs. A
 before upgrading; existing rows, bank details and historical amounts are unchanged. Use the
 pre-upgrade backup if a return to an older app version is necessary.
 
-## Save and print both PDFs (1.17.0)
+## Save and print both PDFs (1.17.1)
 
 Click Save & print both PDFs to save the fixed/custom pair and send both saved files to the
 configured print application, in that order. Both files and statements are saved before either
@@ -218,7 +218,7 @@ parts were submitted and which were not. Retry only the remaining report; do not
 resend a complete pair after partial submission. A successful submission means the print request
 was handed to the configured application, not confirmation that paper has physically printed.
 
-## Checks, employee journal and completed periods (1.17.0)
+## Checks, employee journal and completed periods (1.17.1)
 
 Payroll displays informational checks in the scrollable right panel: bank status not specified,
 zero total hours, or negative net pay for the rate being generated. Before paired output both
@@ -260,4 +260,4 @@ Data > Cyprus holidays shows an offline calendar by year. Automatic Monday–Sat
 
 The calendar follows [Visit Cyprus](https://www.visitcyprus.com/useful-info/time-working-hours-holidays/), checked 2026-11-02, including Christmas Eve; bank-only Easter Tuesday is excluded. Movable dates follow Orthodox Easter. Green Monday is Easter minus 48 days, as in the published table. Pentecost Monday 2029 is May 28 (Easter + 50 days), correcting a June typo in the tourism table; [OCA lists Pentecost Sunday on May 27](https://www.oca.org/readings/daily/2029/05/27). Company-specific days can use Exclude. This calendar plans hours and does not alter pay rates.
 
-New timesheets start with zero hours on holidays. Existing saved timesheets retain their hours. To work on a holiday, double-click its hours and enter a value manually. Lock the date before redistributing to preserve those hours. Holiday names appear in Changes.
+New timesheets start with zero hours on holidays. Existing saved timesheets retain their hours. To work on a holiday, select the date and click Edit hours (or double-click anywhere in the row, or press Enter/F2) and enter a value manually. Lock the date before redistributing to preserve those hours. Holiday names appear in Changes.

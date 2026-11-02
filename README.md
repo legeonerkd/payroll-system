@@ -1,4 +1,4 @@
-# PayrollSystem 1.17.0
+# PayrollSystem 1.17.1
 
 Local Windows application for employees, working hours and PDF payroll statements.
 
@@ -23,7 +23,7 @@ Local Windows application for employees, working hours and PDF payroll statement
 
 ## Cyprus holiday calendar
 
-Data > Cyprus holidays shows an offline calendar by year. Automatic Monday–Saturday distribution skips these dates; manual hours remain allowed (up to 14/day). Lock manual holiday hours to retain them when redistributing. Existing saved hours and historical statements are unchanged.
+Data > Cyprus holidays shows an offline calendar by year. Automatic Monday–Saturday distribution skips these dates; manual editing remains available through Edit hours, a row double-click or Enter/F2. Automatic distribution remains capped at 14/day. Lock manual holiday hours to retain them when redistributing. Existing saved hours and historical statements are unchanged.
 
 The calendar follows [Visit Cyprus](https://www.visitcyprus.com/useful-info/time-working-hours-holidays/), checked 2026-11-02, including Christmas Eve; bank-only Easter Tuesday is excluded. Movable dates follow Orthodox Easter. Green Monday is Easter minus 48 days, as in the published table. Pentecost Monday 2029 is May 28 (Easter + 50 days), correcting a June typo in the tourism table; [OCA lists Pentecost Sunday on May 27](https://www.oca.org/readings/daily/2029/05/27). Company-specific days can use Exclude. This calendar plans hours and does not alter pay rates.
 
@@ -43,7 +43,7 @@ Tests and build instructions: [BUILD.md](BUILD.md). Usage: [USER_GUIDE.md](USER_
 
 The database is stored in `%LOCALAPPDATA%\PayrollSystem\payroll.db`. A verified SQLite backup is created on startup before updating an existing database. `Data > Create database backup` creates another copy; copy backups to a separate drive as well.
 
-Version 1.17.0 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
+Version 1.17.1 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
 
 Uninstall preserves the database and backups. The application never uploads payroll data. Do not commit databases, payroll documents, exports or personal examples to Git.
 
