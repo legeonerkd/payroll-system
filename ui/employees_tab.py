@@ -4,6 +4,7 @@ from core.validation import employee_values
 from decimal import Decimal,InvalidOperation
 from core.banking import ACCOUNT_LABELS
 from ui.scrollable_card import ScrollableCard
+from core.rental import rental_amount
 
 
 class EmployeesTab(ttk.Frame):
@@ -23,6 +24,7 @@ class EmployeesTab(ttk.Frame):
         self.iban_var = tk.StringVar()
         self.bic_var = tk.StringVar()
         self.bank_account_var=tk.StringVar(value='Not specified')
+        self.rental_var=tk.StringVar(value='0.00')
         self.search_var = tk.StringVar()
         self._last_search=''
         self._search_reset=False
@@ -121,10 +123,11 @@ class EmployeesTab(ttk.Frame):
         row("Bank (optional)", self.bank_var, 4)
         row("IBAN (optional)", self.iban_var, 5)
         row("BIC (optional)", self.bic_var, 6)
+        row('Rental / statement (€)',self.rental_var,7)
 
         # ---------- BUTTONS (HORIZONTAL) ----------
         btns = ttk.Frame(form_inner)
-        btns.grid(row=7, column=0, columnspan=2, pady=(16, 0), sticky="ew")
+        btns.grid(row=8, column=0, columnspan=2, pady=(16, 0), sticky="ew")
         btns.columnconfigure(0, weight=1)
         btns.columnconfigure(1, weight=1)
         btns.columnconfigure(2, weight=1)
@@ -137,7 +140,7 @@ class EmployeesTab(ttk.Frame):
 
         self.delete_btn = ttk.Button(btns, text="Archive", command=self._delete, style="Danger.TButton")
         self.delete_btn.grid(row=0, column=2, sticky="ew", padx=(4, 0))
-        ttk.Button(form_inner,text='New / clear',command=self._request_clear).grid(row=8,column=0,columnspan=2,sticky='ew',pady=(10,0))
+        ttk.Button(form_inner,text='New / clear',command=self._request_clear).grid(row=9,column=0,columnspan=2,sticky='ew',pady=(10,0))
         form_card.bind_controls()
 
         self._set_button_state(new_mode=True)
@@ -254,13 +257,14 @@ class EmployeesTab(ttk.Frame):
             self._new_employee_mode();return
 
         self.selected_id = emp_id
-        self._loaded_record={key:r[key] for key in ('name','rate','bank','iban','bic','bank_account_state')}
+        self._loaded_record={key:r[key] for key in ('name','rate','bank','iban','bic','bank_account_state','rental_amount')}
         self.name_var.set(r["name"])
         self.rate_var.set(str(r["rate"]))
         self.bank_var.set(r["bank"] or "")
         self.iban_var.set(r["iban"] or "")
         self.bic_var.set(r["bic"] or "")
         self.bank_account_var.set(ACCOUNT_LABELS[r['bank_account_state']])
+        self.rental_var.set(f"{r['rental_amount']:.2f}")
         self._form_snapshot=self._form_values()
         
         # Переключаем в режим редактирования
@@ -288,6 +292,7 @@ class EmployeesTab(ttk.Frame):
         self.iban_var.set("")
         self.bic_var.set("")
         self.bank_account_var.set('Not specified')
+        self.rental_var.set('0.00')
         self._form_snapshot=self._form_values()
 
         self._set_button_state(new_mode=True)
@@ -298,7 +303,9 @@ class EmployeesTab(ttk.Frame):
             rate=Decimal(values[1])
             if rate.is_finite():values[1]=rate
         except InvalidOperation:pass
-        return tuple(values)+(self.bank_account_var.get(),)
+        try:rental=rental_amount(self.rental_var.get() or 0)
+        except ValueError:rental=self.rental_var.get().strip()
+        return tuple(values)+(self.bank_account_var.get(),rental)
 
     def _account_state(self):
         return next(key for key,label in ACCOUNT_LABELS.items() if label==self.bank_account_var.get())
@@ -346,6 +353,9 @@ class EmployeesTab(ttk.Frame):
         rate = self._parse_rate()
         if rate is None:
             return
+        try:rental=rental_amount(self.rental_var.get() or 0)
+        except ValueError as exc:
+            messagebox.showerror('Rental deduction',str(exc));return
 
         if not self.name_var.get().strip():
             messagebox.showerror("Missing data", "Employee name is required.")
@@ -358,6 +368,7 @@ class EmployeesTab(ttk.Frame):
             iban=self.iban_var.get().strip() or None,
             bic=self.bic_var.get().strip() or None,
             bank_account_state=self._account_state(),
+            rental_amount=rental,
         )
 
         self._new_employee_mode()
@@ -388,6 +399,7 @@ class EmployeesTab(ttk.Frame):
                 bic=self.bic_var.get().strip() or None,
                 expected=self._loaded_record,
                 bank_account_state=self._account_state(),
+                rental_amount=rental_amount(self.rental_var.get() or 0),
             )
         except ValueError as exc:
             messagebox.showerror('Employee update',str(exc));return

@@ -9,6 +9,7 @@ from core.validation import employee_values, number
 from services.payroll_service import calculate_payroll
 from core.models import Employee
 from core.banking import payment_details
+from core.rental import rental_for_rate
 from services.report_service import generate_payroll_pdf
 
 
@@ -137,7 +138,6 @@ def process_import(db, employees, options, progress=None):
     if not options['save_to_db'] and not options['create_pdf']:
         raise ExcelImportError('Select saving hours or generating PDFs')
     utilities = str(number(options.get('utilities',0),'Utilities deduction'))
-    rental = str(number(options.get('rental',0),'Rental deduction'))
     files = []
     try:
         with db.transaction():
@@ -171,7 +171,7 @@ def process_import(db, employees, options, progress=None):
                            for key in ('bank','iban','bic')}
                 if existing is not None and not options.get('update_existing',True):
                     details = {key:existing[key] for key in details}
-                calculate_payroll(Employee(0,emp.name,emp.rate),emp.hours_by_date,options['rate_mode'],utilities=utilities,housing=rental)
+                calculate_payroll(Employee(0,emp.name,emp.rate),emp.hours_by_date,options['rate_mode'],utilities=utilities,housing=rental_for_rate(existing,options['rate_mode']))
                 plans.append((emp,existing,details))
             for index,(emp,existing,details) in enumerate(plans,1):
                 # A PDF-only import does not mutate the employee database.
@@ -182,6 +182,7 @@ def process_import(db, employees, options, progress=None):
                     elif options.get('update_existing',True):
                         db.update_employee(eid,emp.name,emp.rate,**details)
                 path = None
+                rental=str(rental_for_rate(db.get_employee(eid) if options['save_to_db'] else existing,options['rate_mode']))
                 if options['create_pdf']:
                     start,end=emp.get_date_range()
                     display_name = existing['name'] if existing is not None and not options.get('update_existing',True) else emp.name

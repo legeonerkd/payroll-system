@@ -1,4 +1,5 @@
 from datetime import date,timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 import tkinter as tk
@@ -10,6 +11,7 @@ from services.payroll_service import calculate_custom_payroll
 from services import report_service as reports
 from database.db import Database
 from ui.payroll_tab import PayrollTab
+from ui.employees_tab import EmployeesTab
 
 
 @pytest.mark.parametrize('value',[-1,'nan','inf'])
@@ -561,3 +563,89 @@ def test_save_records_snapshot_and_changed_period_is_rejected(ui,monkeypatch):
     assert db.get_all_hours()[0]['rate']==20
     tab.to_entry.set_date(date(2026,5,2))
     with pytest.raises(ValueError):tab._call_pdf('save')
+
+
+@pytest.fixture
+def rental_ui(tk_root):
+    root=tk_root;db=Database(':memory:')
+    eid=db.add_employee('Synthetic',15,bank_account_state='yes',rental_amount=50)
+    tab=PayrollTab(root,db)
+    tab.from_entry.set_date(date(2026,11,2));tab.to_entry.set_date(date(2026,11,2))
+    tab.employee_cb.set(next(label for label,e in tab.employee_map.items() if e['id']==eid))
+    tab._display_period(date(2026,11,2),date(2026,11,2),db.get_employee(eid),{'2026-11-02':8},dirty=False)
+    yield root,db,eid,tab
+    tab.destroy();root.update_idletasks();db.close()
+
+
+def test_switching_rate_uses_saved_rental_and_keeps_utilities_manual(rental_ui,monkeypatch):
+    _,db,eid,tab=rental_ui
+    assert tab.rental_var.get()=='50.00' and tab.net_var.get()=='14.00 €'
+    tab.utilities_var.set('4')
+    tab.rate_mode.set('custom')
+    assert tab.rental_var.get()=='0.00' and tab.net_var.get()=='116.00 €'
+    assert tab.utilities_var.get()=='4'
+    tab.rate_mode.set('fixed')
+    assert tab.net_var.get()=='10.00 €'
+    db.update_employee(eid,'Synthetic',15,bank_account_state='no')
+    tab.refresh_employees()
+    assert tab.rental_var.get()=='0.00'
+    tab.rate_mode.set('custom')
+    assert tab.rental_var.get()=='50.00' and tab.net_var.get()=='66.00 €'
+
+
+@pytest.mark.parametrize('utilities',['0','7.50'])
+def test_print_reminder_precedes_print_and_never_requires_an_answer(rental_ui,monkeypatch,utilities):
+    _,db,eid,tab=rental_ui
+    tab.utilities_var.set(utilities)
+    def forbidden(*args,**kwargs):raise AssertionError('Printing must not wait for a reminder dialog')
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',forbidden)
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',forbidden)
+    calls=[]
+    def generate(**kwargs):
+        assert tab.utilities_reminder.grid_info()
+        assert kwargs['action']=='print' and Decimal(kwargs['rental'])==50
+        assert Decimal(kwargs['utilities'])==Decimal(utilities)
+        calls.append(kwargs);return 'synthetic.pdf'
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',generate)
+    assert tab._call_pdf('print')=='synthetic.pdf' and len(calls)==1
+    assert not db.get_payrolls() and not db.get_all_hours()
+
+
+def test_other_rate_or_unknown_status_does_not_deduct_or_show_reminder(rental_ui,monkeypatch):
+    _,db,eid,tab=rental_ui
+    calls=[]
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:(calls.append(kw) or 'synthetic.pdf'))
+    tab.rate_mode.set('custom');tab._call_pdf('print')
+    assert Decimal(calls[-1]['rental'])==0 and not tab.utilities_reminder.grid_info()
+    db.update_employee(eid,'Synthetic',15,bank_account_state='unknown');tab.refresh_employees()
+    tab.rate_mode.set('fixed');tab._call_pdf('print')
+    assert Decimal(calls[-1]['rental'])==0 and not tab.utilities_reminder.grid_info()
+    assert 'Set Bank account' in tab.rental_hint_var.get()
+
+
+def test_saved_statements_keep_original_deduction_when_card_changes(rental_ui,monkeypatch):
+    _,db,eid,tab=rental_ui
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save');first=db.get_payrolls()[0]
+    assert first['rental']==50 and first['net_amount']==14
+    assert not tab.has_unsaved_changes()
+    db.update_employee(eid,'Synthetic',15,rental_amount=60);tab.refresh_employees()
+    assert tab.rental_var.get()=='60.00' and tab.has_unsaved_changes()
+    assert db.get_payrolls()[0]['rental']==50
+    # A later, non-overlapping statement applies the saved rental again.
+    tab._display_period(date(2026,11,3),date(2026,11,3),db.get_employee(eid),{'2026-11-03':8},dirty=False)
+    tab.from_entry.set_date(date(2026,11,3));tab.to_entry.set_date(date(2026,11,3))
+    tab._call_pdf('save')
+    assert [p['rental'] for p in db.get_payrolls()]==[60,50]
+
+
+def test_employee_form_saves_and_guards_rental(rental_ui,monkeypatch):
+    root,db,eid,_=rental_ui
+    editor=EmployeesTab(root,db)
+    editor.tree.selection_set(str(eid));editor._on_select(None)
+    assert editor.rental_var.get()=='50.00'
+    editor.rental_var.set('72.50');assert editor.has_unsaved_changes()
+    editor._update()
+    assert db.get_employee(eid)['rental_amount']==72.5
+    editor._new_employee_mode();assert editor.rental_var.get()=='0.00'
+    editor.destroy()

@@ -11,10 +11,11 @@ from config import DATABASE_PATH
 from core.backup import backup_db
 from core.models import Employee
 from core.banking import validate_account_state,payment_details
+from core.rental import rental_amount as validate_rental_amount
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class PayrollConflictError(ValueError):
@@ -84,6 +85,8 @@ class Database:
             if 'bank_account_state' not in self._columns('employees'):
                 self.conn.execute("ALTER TABLE employees ADD COLUMN bank_account_state TEXT NOT NULL DEFAULT 'unknown' CHECK(bank_account_state IN ('unknown','yes','no'))")
                 self.conn.execute("UPDATE employees SET bank_account_state='yes' WHERE TRIM(COALESCE(iban,''))<>''")
+            if 'rental_amount' not in self._columns('employees'):
+                self.conn.execute('ALTER TABLE employees ADD COLUMN rental_amount REAL NOT NULL DEFAULT 0 CHECK(rental_amount>=0)')
             self.conn.execute('''CREATE TABLE IF NOT EXISTS work_hours (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 employee_id INTEGER NOT NULL REFERENCES employees(id),
@@ -171,24 +174,28 @@ class Database:
             raise ValueError('Employee not found')
         return row
 
-    def add_employee(self, name, rate, bank=None, iban=None, bic=None,*,bank_account_state=None):
+    def add_employee(self, name, rate, bank=None, iban=None, bic=None,*,bank_account_state=None,rental_amount=0):
         name, rate = employee_values(name, rate)
         state=validate_account_state(bank_account_state if bank_account_state is not None else ('yes' if str(iban or '').strip() else 'unknown'))
+        rental=float(validate_rental_amount(rental_amount))
         with self.transaction():
-            cur = self.conn.execute('INSERT INTO employees(name,rate,bank,iban,bic,bank_account_state) VALUES(?,?,?,?,?,?)',
-                                    (name, rate, bank, iban, bic,state))
+            cur = self.conn.execute('INSERT INTO employees(name,rate,bank,iban,bic,bank_account_state,rental_amount) VALUES(?,?,?,?,?,?,?)',
+                                    (name, rate, bank, iban, bic,state,rental))
             return cur.lastrowid
 
-    def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None,*,expected=None,bank_account_state=None):
+    def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None,*,expected=None,bank_account_state=None,rental_amount=None):
         name, rate = employee_values(name, rate)
         with self.transaction():
             current=self.get_employee(emp_id)
             if expected is not None and (current['archived'] or any(current[key]!=expected.get(key) for key in ('name','rate','bank','iban','bic','bank_account_state'))):
                 raise ValueError('Employee details changed after this form was loaded. Clear and select the employee again before updating.')
+            if expected is not None and 'rental_amount' in expected and current['rental_amount']!=expected['rental_amount']:
+                raise ValueError('Employee rental changed after this form was loaded. Clear and select the employee again before updating.')
+            rental=current['rental_amount'] if rental_amount is None else float(validate_rental_amount(rental_amount))
             state=current['bank_account_state'] if bank_account_state is None else validate_account_state(bank_account_state)
             if bank_account_state is None and state=='unknown' and not str(current['iban'] or '').strip() and str(iban or '').strip():state='yes'
-            self.conn.execute('UPDATE employees SET name=?,rate=?,bank=?,iban=?,bic=?,bank_account_state=? WHERE id=?',
-                              (name, rate, bank, iban, bic,state,emp_id))
+            self.conn.execute('UPDATE employees SET name=?,rate=?,bank=?,iban=?,bic=?,bank_account_state=?,rental_amount=? WHERE id=?',
+                              (name, rate, bank, iban, bic,state,rental,emp_id))
 
     def delete_employee(self, emp_id):
         # Keep financial and timesheet history intact.
