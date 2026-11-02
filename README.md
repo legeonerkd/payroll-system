@@ -1,4 +1,4 @@
-# PayrollSystem 1.15.2
+# PayrollSystem 1.16.0
 
 Local Windows application for employees, working hours and PDF payroll statements.
 
@@ -16,6 +16,10 @@ Local Windows application for employees, working hours and PDF payroll statement
 - Explicit corrected statement versions preserve originals. Monthly totals use current statements by period end; drafts and unresolved duplicate periods stay separate.
 - Verified database backups, export to another location and restore through Data > Backups and restore.
 - CSV export of working hours. Historical applied rates are shown only when recorded; draft/legacy rates remain unknown.
+- Informational checks before output flag an unspecified bank status, zero total hours and negative net pay without requiring positive utilities.
+- Employee change history records rate, rental and declared bank-status changes from installation onward.
+- History can reprint one saved PDF or open its folder; missing files rebuild from the original snapshot rather than the current employee card.
+- Close completed employee periods to protect hours and statements. Reopen explicitly to make corrections; saved originals remain available in History.
 
 ## Run from source
 
@@ -33,7 +37,7 @@ Tests and build instructions: [BUILD.md](BUILD.md). Usage: [USER_GUIDE.md](USER_
 
 The database is stored in `%LOCALAPPDATA%\PayrollSystem\payroll.db`. A verified SQLite backup is created on startup before updating an existing database. `Data > Create database backup` creates another copy; copy backups to a separate drive as well.
 
-Version 1.15.2 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
+Version 1.16.0 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
 
 Uninstall preserves the database and backups. The application never uploads payroll data. Do not commit databases, payroll documents, exports or personal examples to Git.
 

@@ -5,6 +5,7 @@ from decimal import Decimal,InvalidOperation
 from core.banking import ACCOUNT_LABELS
 from ui.scrollable_card import ScrollableCard
 from core.rental import rental_amount
+from ui.employee_changes import EmployeeChanges
 
 
 class EmployeesTab(ttk.Frame):
@@ -140,6 +141,8 @@ class EmployeesTab(ttk.Frame):
         self.delete_btn = ttk.Button(btns, text="Archive", command=self._delete, style="Danger.TButton")
         self.delete_btn.grid(row=0, column=2, sticky="ew", padx=(4, 0))
         ttk.Button(form_inner,text='New / clear',command=self._request_clear).grid(row=9,column=0,columnspan=2,sticky='ew',pady=(10,0))
+        self.change_history_btn=ttk.Button(form_inner,text='Change history',command=self._show_changes)
+        self.change_history_btn.grid(row=10,column=0,columnspan=2,sticky='ew',pady=(8,0))
         form_card.bind_controls()
 
         self._set_button_state(new_mode=True)
@@ -320,6 +323,7 @@ class EmployeesTab(ttk.Frame):
         if self._confirm_form_discard():self._new_employee_mode()
 
     def _set_button_state(self, new_mode):
+        self.change_history_btn.configure(state='disabled' if new_mode else 'normal')
         if new_mode:
             self.add_btn.configure(state="normal")
             self.update_btn.configure(state="disabled")
@@ -328,6 +332,9 @@ class EmployeesTab(ttk.Frame):
             self.add_btn.configure(state="disabled")
             self.update_btn.configure(state="normal")
             self.delete_btn.configure(state="normal")
+
+    def _show_changes(self):
+        if self.selected_id is not None:EmployeeChanges(self,self.db,self.selected_id)
 
     # ======================================================
     # VALIDATION

@@ -602,7 +602,7 @@ def test_print_reminder_precedes_print_and_never_requires_an_answer(rental_ui,mo
     monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',forbidden)
     calls=[]
     def generate(**kwargs):
-        assert tab.utilities_reminder.grid_info()
+        assert tab.utilities_reminder.winfo_manager()
         assert kwargs['action']=='print' and Decimal(kwargs['rental'])==50
         assert Decimal(kwargs['utilities'])==Decimal(utilities)
         calls.append(kwargs);return 'synthetic.pdf'
@@ -616,10 +616,10 @@ def test_other_rate_or_unknown_status_does_not_deduct_or_show_reminder(rental_ui
     calls=[]
     monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:(calls.append(kw) or 'synthetic.pdf'))
     tab.rate_mode.set('custom');tab._call_pdf('print')
-    assert Decimal(calls[-1]['rental'])==0 and not tab.utilities_reminder.grid_info()
+    assert Decimal(calls[-1]['rental'])==0 and not tab.utilities_reminder.winfo_manager()
     db.update_employee(eid,'Synthetic',15,bank_account_state='unknown');tab.refresh_employees()
     tab.rate_mode.set('fixed');tab._call_pdf('print')
-    assert Decimal(calls[-1]['rental'])==0 and not tab.utilities_reminder.grid_info()
+    assert Decimal(calls[-1]['rental'])==0 and not tab.utilities_reminder.winfo_manager()
     assert 'Set Bank account' in tab.rental_hint_var.get()
 
 
@@ -734,7 +734,7 @@ def test_save_and_print_both_saves_first_and_reminds_without_blocking(rental_ui,
     _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path);sent=[]
     def printer(path):
         assert len(db.get_payrolls(current_only=True))==2
-        assert tab.utilities_reminder.grid_info()
+        assert tab.utilities_reminder.winfo_manager()
         sent.append(path)
     monkeypatch.setattr('services.paired_payroll_service._print_file',printer)
     result=tab._call_both_pdfs(print_after=True)
@@ -772,3 +772,76 @@ def test_generation_failure_never_starts_printing(rental_ui,monkeypatch,tmp_path
     monkeypatch.setattr('services.paired_payroll_service._print_file',lambda path:sent.append(path))
     with pytest.raises(OSError):tab._call_both_pdfs(print_after=True)
     assert not sent and not db.get_payrolls()
+
+
+def test_preflight_is_visible_before_output_and_does_not_block_zero_utilities(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui
+    db.update_employee(eid,'Synthetic',15,rental_amount=100);tab.refresh_employees()
+    calls=[]
+    def generate(**kw):
+        assert 'negative net pay' in tab.preflight_var.get()
+        path=tmp_path/f"Payroll_{kw['rate_mode']}.pdf";path.write_bytes(b'synthetic');calls.append(kw);return str(path)
+    monkeypatch.setattr('services.paired_payroll_service.generate_payroll_pdf',generate)
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:pytest.fail('No warning acknowledgement is required'))
+    tab._call_both_pdfs()
+    assert len(calls)==2 and len(db.get_payrolls())==2
+
+
+def test_closed_period_controls_and_outputs_require_explicit_reopening(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path)
+    tab._call_both_pdfs();errors=[]
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:errors.append(a))
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showwarning',lambda *a:errors.append(a))
+    tab._toggle_period()
+    assert not errors and db.period_is_closed(eid,'2026-11-02','2026-11-02')
+    assert tab.save_status_var.get()=='Closed · read-only' and tab.net_var.get()=='See History'
+    assert all(str(w.cget('state'))=='disabled' for w in tab.period_write_controls)
+    before=dict(tab.days_data);tab._start_edit_hours(None);tab._toggle_day_rule('locked');tab._distribute_hours()
+    assert errors and tab.days_data==before
+    with pytest.raises(ValueError,match='closed'):tab._call_pdf('print')
+    with pytest.raises(ValueError,match='closed'):tab._call_both_pdfs()
+    tab._toggle_period()
+    assert not db.period_is_closed(eid,'2026-11-02','2026-11-02')
+    assert all(str(w.cget('state'))=='normal' for w in tab.period_write_controls)
+    assert tab.net_var.get()=='14.00 €'
+
+
+def test_unsaved_period_is_not_closed_by_ui(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path);tab._call_both_pdfs()
+    tab.utilities_var.set('4');errors=[]
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:errors.append(a))
+    tab._toggle_period()
+    assert errors and not db.get_closed_periods()
+
+
+def test_history_prints_only_selected_original_with_nonblocking_reminder(rental_ui,monkeypatch,tmp_path):
+    from ui.payroll_history import PayrollHistory
+    root,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path)
+    result=tab._call_both_pdfs();db.close_period(eid,'2026-11-02','2026-11-02')
+    before=[dict(p) for p in db.get_payrolls()];sent=[]
+    history=PayrollHistory(root,db,employee_id=eid)
+    history.tree.selection_set(str(result['ids']['fixed']))
+    monkeypatch.setattr('services.report_service._print_file',lambda path:sent.append(path))
+    monkeypatch.setattr('ui.payroll_history.messagebox.showinfo',lambda *a,**k:pytest.fail('Reminder must not require an answer'))
+    history._print_selected()
+    assert sent==[result['files']['fixed']] and 'Saved utilities: 0.00' in history.notice.get()
+    assert [dict(p) for p in db.get_payrolls()]==before
+    history.destroy()
+
+
+def test_journal_and_closed_period_windows_are_read_only_and_reopen_is_confirmed(rental_ui,monkeypatch,tmp_path):
+    from ui.employee_changes import EmployeeChanges
+    from ui.closed_periods import ClosedPeriods
+    root,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path)
+    tab._call_both_pdfs();pid=db.close_period(eid,'2026-11-02','2026-11-02')
+    db.update_employee_rate(eid,16)
+    journal=EmployeeChanges(root,db,eid)
+    assert len(journal.tree.get_children())==4
+    changes=[];periods=ClosedPeriods(root,db,lambda:changes.append(True))
+    periods.tree.selection_set(str(pid))
+    monkeypatch.setattr('ui.closed_periods.messagebox.askyesno',lambda *a,**k:False)
+    periods._reopen();assert db.period_is_closed(eid,'2026-11-02','2026-11-02') and not changes
+    monkeypatch.setattr('ui.closed_periods.messagebox.askyesno',lambda *a,**k:True)
+    periods._reopen();assert not db.period_is_closed(eid,'2026-11-02','2026-11-02') and changes==[True]
+    journal.destroy();periods.destroy()

@@ -1,4 +1,4 @@
-# PayrollSystem 1.15.2 — usage
+# PayrollSystem 1.16.0 — usage
 
 ## Payroll screen
 
@@ -151,7 +151,7 @@ unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.
 
-## Saved rental and utilities reminder (1.15.2)
+## Saved rental and utilities reminder (1.16.0)
 
 In Employees, set Rental / statement (€) once; 0 disables the saved rental deduction.
 The saved amount is also shown in the Employees table under Rental (€).
@@ -175,7 +175,7 @@ For an existing employee, imported name/rate/bank updates preserve the saved ren
 Schema 7 adds the saved rental field with a default of zero. A verified pre-migration backup
 is created first. Old statement deductions are not guessed as future recurring settings.
 
-## Save both PDFs (1.15.2)
+## Save both PDFs (1.16.0)
 
 Load the selected employee's period, enter utilities once (0 is valid) and click Save both PDFs.
 The app creates two separately named files, fixed and custom, with the same daily hours.
@@ -206,7 +206,7 @@ the explicit relationship; old records are not automatically guessed as pairs. A
 before upgrading; existing rows, bank details and historical amounts are unchanged. Use the
 pre-upgrade backup if a return to an older app version is necessary.
 
-## Save and print both PDFs (1.15.2)
+## Save and print both PDFs (1.16.0)
 
 Click Save & print both PDFs to save the fixed/custom pair and send both saved files to the
 configured print application, in that order. Both files and statements are saved before either
@@ -217,3 +217,38 @@ If print submission fails, the saved statements and files remain. The message li
 parts were submitted and which were not. Retry only the remaining report; do not automatically
 resend a complete pair after partial submission. A successful submission means the print request
 was handed to the configured application, not confirmation that paper has physically printed.
+
+## Checks, employee journal and completed periods (1.16.0)
+
+Payroll displays informational checks in the scrollable right panel: bank status not specified,
+zero total hours, or negative net pay for the rate being generated. Before paired output both
+rates are checked. These notices do not require an answer or a nonzero utilities value. Invalid
+numeric inputs are still rejected. The separate utilities reminder for rental remains non-modal.
+
+History > Employee changes lists actual rate, Rental / statement and Bank account changes with
+old/new values and a timestamp. Change history in Employee Details opens the selected employee.
+New employee creation records initial values. Existing employees receive no invented past events
+on migration. Bank names, IBAN and BIC are not copied to this journal. Failed transactions do not
+leave journal entries. Backups and restores include the journal.
+
+History > Payroll history > Print selected PDF sends only the selected statement. A saved file is
+used when available; otherwise the original snapshot reconstructs it, preserving original amounts,
+name, rates and bank details. Current card changes never recalculate a reprint. The rental/utilities
+reminder is informational and uses the saved utilities value. Open PDF folder opens the selected
+file's folder; with no selection it opens the reports root. Export > Open PDF folder also opens the root.
+
+After saving and reviewing the exact employee period, choose Close period on Payroll and confirm.
+Only saved statements matching current daily hours can be closed. Resolve overlaps, duplicate rates
+and unlinked/inconsistent pairs first. A closed period protects hours, day rules, imports and new
+or corrected statements. The card can still be updated for future periods, and closed statement
+amounts remain unchanged. Payroll shows Closed / read-only and See History instead of recalculating
+completed financial figures from the current card. Use History to view or reprint saved statements.
+
+Reopen period on Payroll or History > Closed periods > Reopen selected period explicitly enables
+editing again. Cancel leaves the period closed. Closed/reopened timestamps remain in the archive;
+reopening does not delete original statements or bypass normal explicit correction rules. Closing
+is per employee and exact date range, not a global month lock. Other employees and dates remain editable.
+
+Database format 9 adds the journal and closed-period records after a verified backup. Existing
+employee/hour/payroll rows are unchanged. Older apps reject format 9, so they cannot bypass the
+closed-date protection. Full-database restore includes the saved close/reopen and journal state.

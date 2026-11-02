@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from tkcalendar import DateEntry
 from services.report_service import generate_payroll_pdf
@@ -12,6 +13,8 @@ from services.payroll_service import calculate_fixed_payroll, calculate_custom_p
 from core.models import Employee
 from core.banking import account_caption,payment_details
 from core.rental import rental_for_rate,rental_hint,utilities_for_rate,deduction_mode
+from core.payroll_checks import payroll_checks
+from ui.payroll_history import PayrollHistory
 from services.paired_payroll_service import pair_plans,save_payroll_pair,print_payroll_pair,PairPrintError
 from config import FIXED_RATE
 from core.validation import number
@@ -27,6 +30,7 @@ class PayrollTab(ttk.Frame):
         self.configure(style='App.TFrame')
         self.db = db
         self.on_edit_employee=on_edit_employee
+        self.period_write_controls=[]
         self.bank_account_var=tk.StringVar(value='Bank account: —')
         self.bank_detail_var=tk.StringVar(value='Select an employee')
         self.bank_edit_button=None
@@ -106,11 +110,6 @@ class PayrollTab(ttk.Frame):
         if self.on_edit_employee:
             self.bank_edit_button=ttk.Button(account,text='Edit employee',command=self._edit_employee,style='Quiet.TButton')
             self.bank_edit_button.pack(side='right',padx=(10,0))
-        self.utilities_reminder=ttk.Label(header,text='Utilities reminder: check the entered amount; 0 is allowed. Rental is deducted. Printing continues.',
-                                          style='AccountUnknown.TLabel',wraplength=700)
-        self.utilities_reminder.grid(row=3,column=0,columnspan=4,sticky='ew',pady=(10,0))
-        self.utilities_reminder.bind('<Configure>',lambda event:self.utilities_reminder.configure(wraplength=max(100,event.width-20)))
-        self.utilities_reminder.grid_remove()
 
     def _update_bank_information(self):
         selected=self.employee_map.get(self.employee_cb.get())
@@ -148,12 +147,15 @@ class PayrollTab(ttk.Frame):
         allocation=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         allocation.grid(row=1,column=0,sticky='ew')
         ttk.Label(allocation,text='Total hours (incl. locked)',style='PayrollHint.TLabel').grid(row=0,column=0,sticky='w')
-        ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,12))
+        total_entry=ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13)
+        total_entry.grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,12));self.period_write_controls.append(total_entry)
         for column,(text,variable) in enumerate([('Preferred min',self.distribution_min_var),('Preferred max',self.distribution_max_var)],1):
             ttk.Label(allocation,text=text,style='PayrollHint.TLabel').grid(row=0,column=column,sticky='w',padx=(0,10))
-            ttk.Spinbox(allocation,from_=0,to=MAX_DISTRIBUTED_HOURS,textvariable=variable,width=4).grid(row=1,column=column,pady=(4,0),padx=(0,12))
+            entry=ttk.Spinbox(allocation,from_=0,to=MAX_DISTRIBUTED_HOURS,textvariable=variable,width=4)
+            entry.grid(row=1,column=column,pady=(4,0),padx=(0,12));self.period_write_controls.append(entry)
         distribute=ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton')
         distribute.grid(row=1,column=3,pady=(4,0))
+        self.period_write_controls.append(distribute)
         def fit_distribution(event):
             # Keep controls compact on desktop and wrap the action at narrow widths.
             required=sum(allocation.grid_bbox(column,1)[2] for column in range(3))+distribute.winfo_reqwidth()
@@ -184,8 +186,9 @@ class PayrollTab(ttk.Frame):
         self.total_label.grid(row=5,column=0,sticky='e',pady=(10,0))
         actions=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         actions.grid(row=6,column=0,sticky='ew',pady=(8,0))
-        ttk.Button(actions,text='Lock / unlock',command=lambda:self._toggle_day_rule('locked'),style='PayrollSecondary.TButton').pack(side='left',padx=(0,8))
-        ttk.Button(actions,text='Exclude / include',command=lambda:self._toggle_day_rule('excluded'),style='PayrollSecondary.TButton').pack(side='left')
+        for text,rule in [('Lock / unlock','locked'),('Exclude / include','excluded')]:
+            button=ttk.Button(actions,text=text,command=lambda rule=rule:self._toggle_day_rule(rule),style='PayrollSecondary.TButton')
+            button.pack(side='left',padx=(0,8));self.period_write_controls.append(button)
 
     def _build_right_panel(self,parent):
         shell=ttk.Frame(parent,style='Card.TFrame')
@@ -240,7 +243,13 @@ class PayrollTab(ttk.Frame):
     def _build_rate_card(self,parent):
         card=ttk.Frame(parent,style='PayrollCard.TFrame')
         card.grid(row=0,column=0,sticky='ew')
-        ttk.Label(card,text='Hourly rate',style='PayrollHeading.TLabel').pack(anchor='w',pady=(0,4))
+        self.preflight_var=tk.StringVar()
+        self.preflight_label=ttk.Label(card,textvariable=self.preflight_var,style='AccountUnknown.TLabel',wraplength=205)
+        self.utilities_reminder=ttk.Label(card,text='Utilities reminder: check the entered amount; 0 is allowed. Rental is deducted. Printing continues.',style='AccountUnknown.TLabel',wraplength=205)
+        for notice in (self.preflight_label,self.utilities_reminder):
+            notice.bind('<Configure>',lambda event,notice=notice:notice.configure(wraplength=max(100,event.width-20)))
+        self.rate_heading=ttk.Label(card,text='Hourly rate',style='PayrollHeading.TLabel')
+        self.rate_heading.pack(anchor='w',pady=(0,4))
         ttk.Radiobutton(card,text=f'Fixed rate ({FIXED_RATE} €/h)',variable=self.rate_mode,value='fixed',style='Payroll.TRadiobutton').pack(anchor='w')
         self.custom_rate_label=ttk.Radiobutton(card,text='Employee rate',variable=self.rate_mode,value='custom',style='Payroll.TRadiobutton')
         self.custom_rate_label.pack(anchor='w')
@@ -251,7 +260,8 @@ class PayrollTab(ttk.Frame):
         card.columnconfigure((0,1),weight=1)
         ttk.Label(card,text='Deductions',style='PayrollHeading.TLabel').grid(row=0,column=0,columnspan=2,sticky='w',pady=(0,4))
         ttk.Label(card,text='Utilities (€)',style='PayrollHint.TLabel').grid(row=1,column=0,columnspan=2,sticky='w')
-        ttk.Entry(card,textvariable=self.utilities_var,width=11).grid(row=2,column=0,columnspan=2,sticky='ew',pady=(3,0))
+        entry=ttk.Entry(card,textvariable=self.utilities_var,width=11)
+        entry.grid(row=2,column=0,columnspan=2,sticky='ew',pady=(3,0));self.period_write_controls.append(entry)
         self.utilities_scope_var=tk.StringVar()
         scope=ttk.Label(card,textvariable=self.utilities_scope_var,style='PayrollHint.TLabel',wraplength=205)
         scope.grid(row=3,column=0,columnspan=2,sticky='ew',pady=(6,0))
@@ -276,22 +286,91 @@ class PayrollTab(ttk.Frame):
         card=ttk.Frame(parent,style='PayrollCard.TFrame')
         card.grid(row=3,column=0,sticky='ew',pady=(10,0))
         card.columnconfigure(0,weight=1)
-        ttk.Button(card,text='Save hours',command=self._save_draft,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew')
+        def action(text,command,row,style):
+            button=ttk.Button(card,text=text,command=command,style=style)
+            button.grid(row=row,column=0,sticky='ew',pady=(0 if row==0 else 5,0))
+            self.period_write_controls.append(button)
+        action('Save hours',self._save_draft,0,'PayrollSecondary.TButton')
         ttk.Label(card,text='Save a draft. No payroll is issued.',style='PayrollHint.TLabel').grid(row=1,column=0,sticky='w',pady=(3,8))
-        ttk.Button(card,text='Save & print both PDFs',command=self._save_and_print_both,style='Accent.TButton').grid(row=2,column=0,sticky='ew')
-        ttk.Button(card,text='Save both PDFs',command=self._save_both_pdf,style='PayrollSecondary.TButton').grid(row=3,column=0,sticky='ew',pady=(5,0))
-        ttk.Button(card,text='Save payroll + PDF',command=self._save_pdf,style='PayrollSecondary.TButton').grid(row=4,column=0,sticky='ew',pady=(5,0))
+        action('Save & print both PDFs',self._save_and_print_both,2,'Accent.TButton')
+        action('Save both PDFs',self._save_both_pdf,3,'PayrollSecondary.TButton')
+        action('Save payroll + PDF',self._save_pdf,4,'PayrollSecondary.TButton')
         secondary=ttk.Frame(card,style='PayrollCard.TFrame')
         secondary.grid(row=5,column=0,sticky='ew',pady=(5,0))
         secondary.columnconfigure((0,1),weight=1)
-        ttk.Button(secondary,text='Preview PDF',command=self._preview_pdf,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew',padx=(0,5))
-        ttk.Button(secondary,text='Print',command=self._print_pdf,style='PayrollSecondary.TButton').grid(row=0,column=1,sticky='ew')
+        for column,(text,command) in enumerate([('Preview PDF',self._preview_pdf),('Print',self._print_pdf)]):
+            button=ttk.Button(secondary,text=text,command=command,style='PayrollSecondary.TButton')
+            button.grid(row=0,column=column,sticky='ew',padx=(0,5) if column==0 else 0);self.period_write_controls.append(button)
         ttk.Label(card,text='Preview / Print selected do not save changes.',style='PayrollHint.TLabel').grid(row=6,column=0,sticky='w',pady=(5,0))
+        period_actions=ttk.Frame(card);period_actions.grid(row=7,column=0,sticky='ew',pady=(10,0))
+        period_actions.columnconfigure((0,1),weight=1)
+        self.close_period_button=ttk.Button(period_actions,text='Close period',command=self._toggle_period,style='PayrollSecondary.TButton')
+        self.close_period_button.grid(row=0,column=0,sticky='ew',padx=(0,5))
+        ttk.Button(period_actions,text='History',command=self._open_history,style='PayrollSecondary.TButton').grid(row=0,column=1,sticky='ew')
+
+    def _selected_context(self):
+        employee=self.employee_map.get(self.employee_cb.get())
+        if employee is None:return None
+        try:return employee['id'],self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat()
+        except (ValueError,tk.TclError):return None
+
+    def _is_closed(self):
+        context=self._context or self._selected_context()
+        return bool(context and self.db.period_is_closed(*context))
+
+    def _update_period_controls(self):
+        closed=self._is_closed()
+        for control in self.period_write_controls:control.configure(state='disabled' if closed else 'normal')
+        context=self._selected_context()
+        exact=next((r for r in self.db.get_closed_periods(context[0]) if (r['period_from'],r['period_to'])==context[1:]),None) if context else None
+        self.close_period_button.configure(text='Reopen period' if exact else 'Close period',
+            state='normal' if exact or (context==self._context and self.days_data and not closed) else 'disabled')
+
+    def _open_history(self):
+        context=self._selected_context()
+        if context:PayrollHistory(self,self.db,employee_id=context[0],period=context[1:])
+
+    def _toggle_period(self):
+        context=self._selected_context()
+        if context is None:return
+        exact=next((r for r in self.db.get_closed_periods(context[0]) if (r['period_from'],r['period_to'])==context[1:]),None)
+        try:
+            if exact:
+                if not messagebox.askyesno('Reopen period?','Allow edits and corrected statements for '+context[1]+' — '+context[2]+'? Originals stay in history.'):return
+                self.db.reopen_period(exact['id'])
+            else:
+                if self._context!=context or not self.days_data:raise ValueError('Load this exact period first')
+                if self.has_unsaved_changes() or self._editor is not None:raise ValueError('Save the statements and finish editing before closing this period')
+                if not messagebox.askyesno('Close period?','Protect '+context[1]+' — '+context[2]+' for this employee from hour edits and corrected statements? Saved PDFs remain available in History.'):return
+                self.db.close_period(*context)
+            self.utilities_reminder.pack_forget();self._auto_recalculate();self._update_save_status()
+        except ValueError as exc:messagebox.showerror('Period',str(exc))
+
+    def _guard_period_edit(self):
+        if not self._is_closed():return True
+        messagebox.showwarning('Closed period','Reopen the period explicitly before editing. Reprint original statements from History.')
+        return False
+
+    def _update_preflight(self,modes=None):
+        if self._is_closed():
+            notices=['Closed period — read-only. Open History to view or reprint the original saved amounts.']
+        else:
+            employee=self.employee_map.get(self.employee_cb.get())
+            try:notices=payroll_checks(employee,self.days_data,self.utilities_var.get() or 0,modes or (self.rate_mode.get(),)) if employee is not None and self.days_data else []
+            except ValueError:notices=[]
+        self.preflight_var.set(' '.join(notices))
+        if notices:self.preflight_label.pack(fill='x',before=self.rate_heading,pady=(0,8))
+        else:self.preflight_label.pack_forget()
+
+    def _show_preflight(self,modes=None):
+        self._update_preflight(modes);self.update_idletasks()
+        if self.preflight_var.get():
+            self._ensure_sidebar_visible(SimpleNamespace(widget=self.preflight_label));self.update_idletasks()
 
 
     def _load_employees(self):
         """Загрузка списка сотрудников в combobox"""
-        self.utilities_reminder.grid_remove()
+        self.utilities_reminder.pack_forget()
         old = self.employee_map.get(self.employee_cb.get())
         current_id = old['id'] if old is not None else None
         
@@ -353,7 +432,7 @@ class PayrollTab(ttk.Frame):
         self.days_data.clear()
         self.tree.delete(*self.tree.get_children())
         self._context = None
-        self.utilities_reminder.grid_remove()
+        self.utilities_reminder.pack_forget()
         self.utilities_var.set('0.00')
         self.rental_var.set('0.00')
         if selected is not None:
@@ -400,6 +479,7 @@ class PayrollTab(ttk.Frame):
             return
         try:
             start, end = self.from_entry.get_date(), self.to_entry.get_date()
+            self.db.ensure_period_open(selected['id'],start.isoformat(),end.isoformat())
             stored = self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())
             context=(selected['id'],start.isoformat(),end.isoformat())
             if self._context==context:
@@ -511,6 +591,7 @@ class PayrollTab(ttk.Frame):
         self.tree.set(day,'changes',label)
 
     def _toggle_day_rule(self,rule):
+        if not self._guard_period_edit():return
         selected=self.employee_map.get(self.employee_cb.get())
         context=None if selected is None else (selected['id'],self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat())
         if self._editor is not None or context!=self._context or not self.days_data:
@@ -543,6 +624,7 @@ class PayrollTab(ttk.Frame):
     # ======================================================
 
     def _start_edit_hours(self, event):
+        if not self._guard_period_edit():return
         if self._editor is not None:
             self._save_hours(self._editing_row)
             if self._editor is not None:
@@ -591,6 +673,8 @@ class PayrollTab(ttk.Frame):
     def _save_hours(self, row_id):
         if not self._editor:
             return
+        if self._is_closed():
+            self._cancel_hours_edit();self._guard_period_edit();return
 
         try:
             val = float(number(self._editor.get(), 'Hours', maximum=24))
@@ -648,8 +732,8 @@ class PayrollTab(ttk.Frame):
         return self._dirty or self._payroll_dirty or self._distribution_dirty
 
     def _parameters_changed(self, *args):
-        self.utilities_reminder.grid_remove()
-        if self.days_data:
+        self.utilities_reminder.pack_forget()
+        if self.days_data and not self._is_closed():
             self._payroll_dirty = True
         self._auto_recalculate()
         self._update_bank_information()
@@ -672,12 +756,18 @@ class PayrollTab(ttk.Frame):
                 text = 'Unsaved changes'
             else:
                 text = {'loaded':'Hours loaded · draft','draft':'Hours saved · draft','payroll':'Payroll saved'}[self._saved_kind]
+        if self._is_closed():text='Closed · read-only'
         self.save_status_var.set(text)
         self.save_status_label.configure(foreground='#986119' if self.has_unsaved_changes() else '#526276')
+        self._update_period_controls()
 
     def _auto_recalculate(self):
         """Автоматический пересчёт Net при изменении параметров"""
         self._sync_rental()
+        self._update_preflight()
+        if self._is_closed():
+            self.gross_var.set('See History');self.net_var.set('See History');self.deductions_var.set('See History')
+            return
         if not self.days_data:
             self.gross_var.set('0.00 €')
             self.net_var.set('0.00 €')
@@ -740,8 +830,9 @@ class PayrollTab(ttk.Frame):
 
     def _show_utilities_reminder(self):
         # An inline notice has no modal dialog, grab, answer or required value.
-        self.utilities_reminder.grid()
+        self.utilities_reminder.pack(fill='x',before=self.rate_heading,pady=(0,8))
         self.update_idletasks()
+        self._ensure_sidebar_visible(SimpleNamespace(widget=self.utilities_reminder));self.update_idletasks()
 
     # ======================================================
     # PDF ACTIONS
@@ -796,6 +887,7 @@ class PayrollTab(ttk.Frame):
         if not self.days_data or self._context!=(employee['id'],start,end):
             raise ValueError('Generate the selected period before creating PDFs')
         utilities=number(self.utilities_var.get() or 0,'Utilities deduction')
+        self._show_preflight(('fixed','custom'))
         settings=self._distribution_settings()
         plans=pair_plans(self.db,employee,self.days_data,start,end,utilities)
         if any(plan['exact'] or plan['overlaps'] for plan in plans.values()):
@@ -837,12 +929,14 @@ class PayrollTab(ttk.Frame):
         if self._editor is not None:
             raise ValueError('Finish editing hours with Enter before creating a PDF')
         context = (emp['id'], self.from_entry.get_date().isoformat(), self.to_entry.get_date().isoformat())
+        self.db.ensure_period_open(*context)
         if not self.days_data or self._context != context:
             raise ValueError('Generate the selected period before creating a PDF')
         rows = [(day, '', hours) for day,hours in sorted(self.days_data.items())]
         utilities = utilities_for_rate(emp,self.rate_mode.get(),self.utilities_var.get() or 0)
         rental = rental_for_rate(emp,self.rate_mode.get())
         settings=self._distribution_settings() if action=='save' else None
+        self._show_preflight()
         details=payment_details(emp)
         replaces_ids=()
         expected_ids=None

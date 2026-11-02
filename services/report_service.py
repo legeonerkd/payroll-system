@@ -102,6 +102,39 @@ def preview_payroll_pdf_from_history(payroll, days):
     return path
 
 
+def print_payroll_pdf_from_history(payroll,days):
+    """Reprint one original file, or rebuild only from its immutable snapshot."""
+    saved=Path(payroll['pdf_path']) if payroll['pdf_path'] else None
+    if saved is not None and saved.suffix.lower()=='.pdf' and saved.is_file():
+        path=str(saved)
+    else:
+        directory=_get_payroll_directory(payroll['period_from'])
+        fd,path=mkstemp(prefix=f'Payroll_{payroll["id"]}_reprint_',suffix='.pdf',dir=directory)
+        os.close(fd)
+        try:
+            _render_pdf_to_file(path,payroll['name'],payroll['period_from'],payroll['period_to'],payroll['created_at'],
+                payroll['bank'],payroll['iban'],payroll['bic'],
+                [(_date(d['work_date']).strftime('%d-%m-%Y'),_date(d['work_date']).strftime('%A'),
+                  f'{d["hours"]:g}',f'{d["rate"]:.2f} €',f'{d["amount"]:.2f} €') for d in days],
+                payroll['gross_amount'],payroll['total_hours'],payroll['utilities'],payroll['rental'],net_amount=payroll['net_amount'])
+        except Exception:
+            Path(path).unlink(missing_ok=True);raise
+    _print_file(path)
+    return path
+
+
+def open_payroll_pdf_folder(payroll=None):
+    directory=None
+    if payroll is not None and payroll['pdf_path']:
+        saved=Path(payroll['pdf_path'])
+        if saved.is_absolute() and saved.parent.is_dir():directory=saved.parent
+    if directory is None:
+        directory=Path(os.environ.get('PAYROLL_OUTPUT_DIR',Path.home()/'Documents'/'PayrollSystem'/'Payroll')).resolve()
+        directory.mkdir(parents=True,exist_ok=True)
+    _open_file(str(directory))
+    return str(directory)
+
+
 def _render_pdf_to_file(path, employee_name, period_from, period_to, created_at, bank, iban, bic,
                          rows, gross, total_hours, utilities, rental, net_amount=None):
     if 'PayrollUnicode' not in pdfmetrics.getRegisteredFontNames():

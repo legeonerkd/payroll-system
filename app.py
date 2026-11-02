@@ -12,6 +12,9 @@ from ui.payroll_tab import PayrollTab
 from ui.payroll_history import PayrollHistory
 from ui.monthly_summary import MonthlySummary
 from ui.backup_manager import BackupManager
+from ui.employee_changes import EmployeeChanges
+from ui.closed_periods import ClosedPeriods
+from services.report_service import open_payroll_pdf_folder
 from ui.hours_export import HoursExportWindow
 from ui.excel_import import ExcelImportWindow
 from config import DATABASE_PATH, APP_DATA_DIR
@@ -89,6 +92,7 @@ class PayrollApp(tk.Tk):
             label="Export work hours",
             command=lambda: HoursExportWindow(self, self.db)
         )
+        export_menu.add_command(label='Open PDF folder',command=self._open_pdf_folder)
         
         # History menu
         history_menu = tk.Menu(menubar, tearoff=0)
@@ -98,6 +102,8 @@ class PayrollApp(tk.Tk):
             command=lambda: PayrollHistory(self, self.db)
         )
         history_menu.add_command(label='Monthly summary',command=lambda:MonthlySummary(self,self.db,self._open_month_timesheet))
+        history_menu.add_command(label='Employee changes',command=lambda:EmployeeChanges(self,self.db))
+        history_menu.add_command(label='Closed periods',command=lambda:ClosedPeriods(self,self.db,self._on_periods_changed))
         data_menu=tk.Menu(menubar,tearoff=0)
         menubar.add_cascade(label='Data',menu=data_menu)
         data_menu.add_command(label='Create database backup',command=self._backup)
@@ -125,6 +131,14 @@ class PayrollApp(tk.Tk):
         self.employee_count_label.pack(side="right", padx=10, pady=4)
         
         self._update_status()
+
+    def _open_pdf_folder(self):
+        try:open_payroll_pdf_folder()
+        except Exception as exc:messagebox.showerror('Open PDF folder',str(exc))
+
+    def _on_periods_changed(self):
+        self.payroll_tab._update_save_status()
+        self.payroll_tab._auto_recalculate()
 
     def _update_navigation(self,event=None):
         selected=self.notebook.index('current')
