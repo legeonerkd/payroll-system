@@ -168,7 +168,14 @@ class PayrollTab(ttk.Frame):
         range_hint=ttk.Label(table_frame,text='Up to 14 h/day. Cyprus holidays are skipped; locked hours are kept. Manual holiday hours are allowed.',style='PayrollHint.TLabel',wraplength=600)
         range_hint.grid(row=2,column=0,sticky='ew',pady=(7,2))
         range_hint.bind('<Configure>',lambda event:range_hint.configure(wraplength=max(100,event.width)))
-        ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
+        self.distribution_hint=range_hint
+        edit_bar=ttk.Frame(table_frame,style='PayrollCard.TFrame')
+        edit_bar.grid(row=3,column=0,sticky='ew',pady=(0,10))
+        self.edit_hours_button=ttk.Button(edit_bar,text='Edit hours',command=self._edit_selected_hours,style='PayrollSecondary.TButton')
+        self.edit_hours_button.pack(side='left',padx=(0,10));self.period_write_controls.append(self.edit_hours_button)
+        edit_hint=ttk.Label(edit_bar,text='Select a date and click Edit hours, double-click a row, or press Enter / F2. Enter saves; Esc cancels.',style='PayrollHint.TLabel',wraplength=450)
+        edit_hint.pack(side='left',fill='x',expand=True)
+        edit_hint.bind('<Configure>',lambda event:edit_hint.configure(wraplength=max(100,event.width)))
         container=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         container.grid(row=4,column=0,sticky='nsew')
         container.rowconfigure(0,weight=1)
@@ -182,6 +189,8 @@ class PayrollTab(ttk.Frame):
             self.tree.heading(column,text=label,anchor='e' if column=='hours' else 'w')
             self.tree.column(column,width=width,minwidth=60,anchor='e' if column=='hours' else 'w',stretch=column!='hours')
         self.tree.bind('<Double-1>',self._start_edit_hours)
+        self.tree.bind('<Return>',self._edit_selected_hours)
+        self.tree.bind('<F2>',self._edit_selected_hours)
         self.tree.bind('<Button-1>',self.clear_selection_on_click,add='+')
         self.total_label=ttk.Label(table_frame,text='Total: 0 hours',style='PayrollHeading.TLabel')
         self.total_label.grid(row=5,column=0,sticky='e',pady=(10,0))
@@ -505,6 +514,7 @@ class PayrollTab(ttk.Frame):
         if (self._dirty or stored or self.days_data) and not messagebox.askyesno('Replace hours?',question):
             return
         self._display_period(start, end, selected, values, dirty=True,rules=rules)
+        self.distribution_hint.configure(text=f'Distributed {sum(values.values()):g} h. Unlocked holidays and Sundays are at 0; locked hours are kept. Save hours to keep this result.')
 
     def _display_period(self, start, end, selected, stored, *, dirty,rules=None):
         self.tree.delete(*self.tree.get_children())
@@ -557,6 +567,12 @@ class PayrollTab(ttk.Frame):
             row_index += 1
 
         for key in self.days_data: self._refresh_day_label(key)
+
+        if stored and any(holiday_name(day) and hours for day,hours in self.days_data.items()):
+            hint='Existing holiday hours are kept. Use Distribute Mon-Sat to set unlocked holidays to 0, or Edit hours to correct a date.'
+        else:
+            hint='Up to 14 h/day. Cyprus holidays are skipped; locked hours are kept. Manual holiday hours are allowed.'
+        self.distribution_hint.configure(text=hint)
 
         self._update_total_hours()
         self._auto_recalculate()
@@ -633,23 +649,29 @@ class PayrollTab(ttk.Frame):
 
     def _start_edit_hours(self, event):
         if not self._guard_period_edit():return
+        if self.tree.identify('region',event.x,event.y)!='cell':return
+        row_id=self.tree.identify_row(event.y)
+        if row_id:self._open_hours_editor(row_id)
+        return 'break'
+
+    def _edit_selected_hours(self,event=None):
+        days=self.tree.selection()
+        if not days:
+            messagebox.showinfo('Edit hours','Select a date in the table first')
+            return 'break'
+        self._open_hours_editor(days[0])
+        return 'break'
+
+    def _open_hours_editor(self,row_id):
+        if not self._guard_period_edit():return
         if self._editor is not None:
             self._save_hours(self._editing_row)
             if self._editor is not None:
                 return
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-
-        column = self.tree.identify_column(event.x)
-        if column != "#3":
-            return
-
-        row_id = self.tree.identify_row(event.y)
-        if not row_id:
-            return
-
-        bbox = self.tree.bbox(row_id, column)
+        if row_id not in self.days_data:return
+        self.tree.selection_set(row_id);self.tree.focus(row_id);self.tree.see(row_id)
+        self.tree.update_idletasks()
+        bbox = self.tree.bbox(row_id, '#3')
         if not bbox:
             return
 
@@ -664,7 +686,7 @@ class PayrollTab(ttk.Frame):
         self._editor.delete(0, "end")
         self._editor.insert(0, f"{value:g}")
         self._editor.place(x=x, y=y, width=w, height=h)
-        self._editor.focus()
+        self._editor.focus_set();self._editor.selection_range(0,'end')
 
         self._editor.bind("<Return>", lambda e: self._save_hours(row_id))
         self._editor.bind("<FocusOut>", lambda e: self._save_hours(row_id))
