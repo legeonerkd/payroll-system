@@ -1,4 +1,4 @@
-# PayrollSystem 1.14.0 — usage
+# PayrollSystem 1.14.1 — usage
 
 ## Payroll screen
 
@@ -151,13 +151,14 @@ unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.
 
-## Saved rental and utilities reminder (1.14.0)
+## Saved rental and utilities reminder (1.14.1)
 
 In Employees, set Rental / statement (€) once; 0 disables the saved rental deduction.
+The saved amount is also shown in the Employees table under Rental (€).
 The amount applies to every new statement of the appropriate type, without monthly proration:
 Bank account Yes → Fixed rate; Bank account No → Employee rate. Not specified does not
-apply rental and shows a reminder to declare the status. Payroll displays the effective
-rental as read-only. Switch rate modes to see the matching deduction; changing the mode
+apply rental and shows a reminder to declare the status. Payroll has no separate rental input;
+the saved amount is included automatically in Deductions and Net pay for the matching mode. Changing the mode
 does not copy the deduction into both parts. Utilities stay manual and may be zero.
 
 Before Print with a positive rental deduction, an inline Utilities reminder appears.

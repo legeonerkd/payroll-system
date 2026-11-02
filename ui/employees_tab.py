@@ -64,13 +64,14 @@ class EmployeesTab(ttk.Frame):
 
         self.tree = ttk.Treeview(
             self.table_frame,
-            columns=("name", "rate",'account', "bank", "iban", "bic"),
+            columns=("name", "rate",'account','rental', "bank", "iban", "bic"),
             show="headings"
         )
 
         self.tree.heading("name", text="Name")
         self.tree.heading("rate", text="Rate €/h")
         self.tree.heading('account',text='Bank account')
+        self.tree.heading('rental',text='Rental (€)')
         self.tree.heading("bank", text="Bank")
         self.tree.heading("iban", text="IBAN")
         self.tree.heading("bic", text="BIC")
@@ -78,6 +79,7 @@ class EmployeesTab(ttk.Frame):
         self.tree.column("name", width=200)
         self.tree.column("rate", width=90, anchor="center")
         self.tree.column('account',width=115,minwidth=100)
+        self.tree.column('rental',width=95,minwidth=85,anchor='e')
         self.tree.column("bank", width=150)
         self.tree.column("iban", width=220)
         self.tree.column("bic", width=120)
@@ -118,12 +120,12 @@ class EmployeesTab(ttk.Frame):
 
         row("Full name *", self.name_var, 1)
         row("Hourly rate €/h *", self.rate_var, 2)
-        ttk.Label(form_inner,text='Bank account').grid(row=3,column=0,sticky='w',pady=8,padx=(0,10))
-        ttk.Combobox(form_inner,textvariable=self.bank_account_var,values=list(ACCOUNT_LABELS.values()),state='readonly',width=18).grid(row=3,column=1,sticky='ew',pady=8)
-        row("Bank (optional)", self.bank_var, 4)
-        row("IBAN (optional)", self.iban_var, 5)
-        row("BIC (optional)", self.bic_var, 6)
-        row('Rental / statement (€)',self.rental_var,7)
+        row('Rental / statement (€)',self.rental_var,3)
+        ttk.Label(form_inner,text='Bank account').grid(row=4,column=0,sticky='w',pady=8,padx=(0,10))
+        ttk.Combobox(form_inner,textvariable=self.bank_account_var,values=list(ACCOUNT_LABELS.values()),state='readonly',width=18).grid(row=4,column=1,sticky='ew',pady=8)
+        row("Bank (optional)", self.bank_var, 5)
+        row("IBAN (optional)", self.iban_var, 6)
+        row("BIC (optional)", self.bic_var, 7)
 
         # ---------- BUTTONS (HORIZONTAL) ----------
         btns = ttk.Frame(form_inner)
@@ -192,6 +194,7 @@ class EmployeesTab(ttk.Frame):
                     r["name"],
                     f"{r['rate']:.2f}",
                     ACCOUNT_LABELS[r['bank_account_state']],
+                    f"{r['rental_amount']:.2f}",
                     r["bank"] or "",
                     r["iban"] or "",
                     r["bic"] or "",
