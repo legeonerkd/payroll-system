@@ -14,6 +14,7 @@ from ui.monthly_summary import MonthlySummary
 from ui.backup_manager import BackupManager
 from ui.employee_changes import EmployeeChanges
 from ui.closed_periods import ClosedPeriods
+from ui.cyprus_holidays import CyprusHolidays
 from services.report_service import open_payroll_pdf_folder
 from ui.hours_export import HoursExportWindow
 from ui.excel_import import ExcelImportWindow
@@ -108,6 +109,7 @@ class PayrollApp(tk.Tk):
         menubar.add_cascade(label='Data',menu=data_menu)
         data_menu.add_command(label='Create database backup',command=self._backup)
         data_menu.add_command(label='Backups and restore',command=lambda:BackupManager(self,DATABASE_PATH,self._restore_database))
+        data_menu.add_command(label='Cyprus holidays',command=lambda:CyprusHolidays(self))
 
         # ---------- STATUS BAR ----------
         self.status_bar = ttk.Frame(self,style='StatusBar.TFrame')

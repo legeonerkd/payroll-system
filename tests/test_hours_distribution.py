@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from services.hours_distribution import distribute_hours
+from core.cyprus_holidays import holiday_name
 
 
 @pytest.mark.parametrize('length,total',[(1,'0'),(6,'48'),(31,'173'),(60,'1'),(366,'4000'),(7,'10,00')])
@@ -16,19 +17,19 @@ def test_exact_total_and_monday_saturday_only(length,total):
     for day,hours in values.items():
         assert 0 <= hours <= 14
         assert isinstance(hours,int)
-        if date.fromisoformat(day).weekday() == 6:
+        if date.fromisoformat(day).weekday() == 6 or holiday_name(day):
             assert hours == 0
         else:
             working.append(Decimal(str(hours)))
-    assert max(working)-min(working) <= 4
+    if working:assert max(working)-min(working) <= 4
 
 
 def test_saturday_included_and_equal_average_varies():
-    values = distribute_hours(date(2026,5,1),date(2026,5,4),'30')
+    values = distribute_hours(date(2026,5,1),date(2026,5,4),'24')
     assert values['2026-05-02'] > 0
     assert values['2026-05-03'] == 0
-    assert sum(values.values()) == 30
-    assert len({v for d,v in values.items() if date.fromisoformat(d).weekday()<6}) > 1
+    assert sum(values.values()) == 24
+    assert len({v for d,v in values.items() if date.fromisoformat(d).weekday()<6 and not holiday_name(d)}) > 1
 
 
 @pytest.mark.parametrize('total',range(85))
@@ -91,28 +92,29 @@ def test_invalid_constraints_rejected(options):
         distribute_hours(date(2026,5,1),date(2026,5,2),16,**options)
 
 
-@pytest.mark.parametrize('total',[0,1,27,157,158,159,215,216,324,325,377,378])
+@pytest.mark.parametrize('total',[0,1,27,157,158,159,199,200,300,325,349,350])
 def test_october_total_takes_priority_over_preferred_eight_to_twelve(total):
     result=distribute_hours(date(2026,10,1),date(2026,10,31),total,minimum=8,maximum=12)
-    working=[hours for day,hours in result.items() if date.fromisoformat(day).weekday()<6]
-    assert len(working)==27 and sum(result.values())==total
+    working=[hours for day,hours in result.items() if date.fromisoformat(day).weekday()<6 and not holiday_name(day)]
+    assert len(working)==25 and sum(result.values())==total
+    assert result['2026-10-01']==result['2026-10-28']==0
     assert all(isinstance(v,int) and 0<=v<=14 for v in working)
     assert all(v==0 for day,v in result.items() if date.fromisoformat(day).weekday()==6)
     if total==158:assert len(set(working))>1
-    if 216<=total<=324:assert all(8<=v<=12 for v in working)
+    if 200<=total<=300:assert all(8<=v<=12 for v in working)
 
 
 @pytest.mark.parametrize('minimum,maximum',[(0,0),(8,8),(12,12),(24,24)])
 @pytest.mark.parametrize('total',[0,1,16,27,28])
 def test_fixed_preference_does_not_block_feasible_total(minimum,maximum,total):
-    result=distribute_hours(date(2026,5,1),date(2026,5,2),total,minimum=minimum,maximum=maximum)
+    result=distribute_hours(date(2026,5,4),date(2026,5,5),total,minimum=minimum,maximum=maximum)
     assert sum(result.values())==total
     assert all(isinstance(v,int) and 0<=v<=14 for v in result.values())
 
 
 def test_physical_capacity_remains_explicit():
-    with pytest.raises(ValueError,match='at most 378'):
-        distribute_hours(date(2026,10,1),date(2026,10,31),379,minimum=8,maximum=12)
+    with pytest.raises(ValueError,match='at most 350'):
+        distribute_hours(date(2026,10,1),date(2026,10,31),351,minimum=8,maximum=12)
 
 
 def test_old_twenty_four_hour_preferences_respect_fourteen_hour_cap():

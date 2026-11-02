@@ -5,6 +5,7 @@ import random
 from core.validation import number
 from core.validation import iso_date
 from decimal import Decimal
+from core.cyprus_holidays import holiday_name
 
 MAX_DISTRIBUTED_HOURS = 14
 
@@ -36,16 +37,16 @@ def distribute_hours(start, end, total, *, minimum=0, maximum=MAX_DISTRIBUTED_HO
         raise ValueError('Total hours are less than the locked hours')
     if remaining!=remaining.to_integral_value():
         raise ValueError('The total minus locked hours must be a whole number. Adjust the total or locked hours.')
-    working = [day for day in dates if day.weekday()<6 and day.isoformat() not in locked and day.isoformat() not in excluded]
+    working = [day for day in dates if day.weekday()<6 and not holiday_name(day) and day.isoformat() not in locked and day.isoformat() not in excluded]
     result = {day.isoformat(): 0 for day in dates}
     result.update({day:float(hours) for day,hours in locked.items()})
     if not working:
         if remaining==0: return result
-        raise ValueError('No unlocked Monday-Saturday working days remain for the requested hours')
+        raise ValueError('No available Monday-Saturday days remain after Cyprus holidays, locks and exclusions')
     if remaining>len(working)*MAX_DISTRIBUTED_HOURS:
         fixed=sum(locked.values(),Decimal(0))
         raise ValueError(f'This period can hold at most {fixed+len(working)*MAX_DISTRIBUTED_HOURS:g} hours '
-                         'with 14 hours per available day. Extend the period or unlock more dates.')
+                         'with 14 hours per available non-holiday day. Extend the period or adjust locked dates.')
     # The requested total takes priority over the preferred daily range. Relax
     # only the side that cannot accommodate it; locks and exclusions remain hard.
     if remaining<len(working)*minimum:

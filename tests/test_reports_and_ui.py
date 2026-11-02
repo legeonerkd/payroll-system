@@ -84,7 +84,8 @@ def tk_root():
 
 
 @pytest.fixture
-def ui(tk_root):
+def ui(tk_root,monkeypatch):
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *args,**kw:pytest.fail('Unexpected error dialog: '+str(args)))
     root=tk_root
     db=Database(':memory:')
     first=db.add_employee('Namesake',20);second=db.add_employee('Namesake',30)
@@ -141,7 +142,7 @@ def test_manual_mark_and_escape_preserve_saved_hours(ui,monkeypatch):
     tab._editor=tk.Spinbox(tab.tree)
     tab._editor.delete(0,'end');tab._editor.insert(0,'9')
     tab._save_hours('2026-05-01')
-    assert tab.tree.item('2026-05-01','values')[3]=='Manual edit'
+    assert 'Manual edit' in tab.tree.item('2026-05-01','values')[3]
     assert tab.save_status_var.get()=='Unsaved changes'
     monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
     tab._save_draft()
@@ -203,6 +204,7 @@ def test_cancel_switch_keeps_unsaved_deductions(ui,monkeypatch):
 def test_cancel_or_invalid_distribution_preserves_hours(ui,monkeypatch):
     tab,db,first,_ = ui
     select(tab,first)
+    tab.to_entry.set_date(date(2026,5,2))
     db.save_hours(first,'2026-05-01',7)
     tab._generate_period()
     original = dict(tab.days_data)
@@ -242,6 +244,7 @@ def test_october_158_with_saved_preferences_distributes_and_persists(ui,monkeypa
 def test_pins_exclusions_range_survive_save_reload_and_distribution(ui,monkeypatch):
     tab,db,first,_=ui
     select(tab,first);tab.to_entry.set_date(date(2026,5,4))
+    db.save_hours(first,'2026-05-01',10)  # Explicit manual work on Labour Day.
     tab._generate_period()
     monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
     monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
@@ -855,3 +858,44 @@ def test_future_card_changes_do_not_mark_closed_period_unsaved(rental_ui,monkeyp
     tab.refresh_employees()
     assert not tab.has_unsaved_changes() and tab.save_status_var.get()=='Closed · read-only'
     assert tab.net_var.get()=='See History' and [dict(p) for p in db.get_payrolls()]==original
+
+
+def test_holiday_starts_at_zero_is_editable_and_survives_saved_reload(ui,monkeypatch):
+    tab,db,first,_=ui;select(tab,first);tab._generate_period()
+    assert tab.days_data['2026-05-01']==0
+    assert 'Labour Day' in tab.tree.set('2026-05-01','changes')
+    assert not tab._excluded_days
+    tab._editor=tk.Spinbox(tab.tree);tab._editor.delete(0,'end');tab._editor.insert(0,'8')
+    tab._save_hours('2026-05-01')
+    assert tab.days_data['2026-05-01']==8 and 'Manual edit' in tab.tree.set('2026-05-01','changes')
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
+    tab._save_draft();tab._generate_period()
+    assert tab.days_data['2026-05-01']==8 and 'Labour Day' in tab.tree.set('2026-05-01','changes')
+
+
+def test_calendar_distribution_skips_holiday_unless_manually_locked(ui,monkeypatch):
+    tab,db,first,_=ui;select(tab,first)
+    tab.to_entry.set_date(date(2026,5,4));tab._generate_period()
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
+    tab.distribution_hours_var.set('24');tab._distribute_hours()
+    assert tab.days_data['2026-05-01']==0 and sum(tab.days_data.values())==24
+    tab._editor=tk.Spinbox(tab.tree);tab._editor.delete(0,'end');tab._editor.insert(0,'8')
+    tab._save_hours('2026-05-01')
+    tab.tree.selection_set('2026-05-01');tab._toggle_day_rule('locked')
+    tab.distribution_hours_var.set('28');tab._distribute_hours()
+    assert tab.days_data['2026-05-01']==8 and sum(tab.days_data.values())==28
+    assert 'Labour Day' in tab.tree.set('2026-05-01','changes') and 'Locked' in tab.tree.set('2026-05-01','changes')
+
+
+def test_cyprus_calendar_window_changes_year_without_touching_hours(tk_root,monkeypatch):
+    from ui.cyprus_holidays import CyprusHolidays
+    window=CyprusHolidays(tk_root)
+    window.year.set('2026');window._load()
+    assert len(window.tree.get_children())==16
+    assert window.tree.set('2026-02-23','name')=='Green Monday'
+    window.year.set('2027');window._load()
+    assert window.tree.set('2027-03-15','name')=='Green Monday'
+    errors=[];monkeypatch.setattr('ui.cyprus_holidays.messagebox.showerror',lambda *a,**k:errors.append(a))
+    window.year.set('bad');window._load()
+    assert errors and window.tree.exists('2027-03-15')
+    window.destroy()

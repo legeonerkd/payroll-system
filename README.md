@@ -1,4 +1,4 @@
-# PayrollSystem 1.16.0
+# PayrollSystem 1.17.0
 
 Local Windows application for employees, working hours and PDF payroll statements.
 
@@ -6,7 +6,7 @@ Local Windows application for employees, working hours and PDF payroll statement
 
 - Employees with stable IDs, custom hourly rates and optional banking details. Namesakes are supported. Archive preserves hours and payroll history.
 - Fixed rate of 8 EUR/hour or the employee's custom rate. Rental and manually entered utilities apply to Fixed rate for Bank account Yes, or Employee rate for No; Not specified applies neither and requires clarification. Zero utilities are valid. Printing with a rental deduction shows a non-blocking utilities reminder.
-- Load an existing timesheet or generate a period (up to 366 days). New periods start with 10 weekday hours and zero weekend hours; verify them before saving.
+- Load an existing timesheet or generate a period (up to 366 days). New periods start with 10 weekday hours and zero weekend/holiday hours; verify them before saving.
 - Save draft hours independently. Preview and Print do not change the database. Save payroll + PDF records an immutable snapshot with applied rates, deductions and bank details.
 - Save both PDFs creates separate fixed/custom files and saves both statements atomically. Corrections remain separate by rate; monthly totals count matching paired hours once.
 - Save & print both PDFs saves the pair, then submits both saved files to the configured print application. Partial print failures preserve saved files and identify which report remains to send.
@@ -20,6 +20,12 @@ Local Windows application for employees, working hours and PDF payroll statement
 - Employee change history records rate, rental and declared bank-status changes from installation onward.
 - History can reprint one saved PDF or open its folder; missing files rebuild from the original snapshot rather than the current employee card.
 - Close completed employee periods to protect hours and statements. Reopen explicitly to make corrections; saved originals remain available in History.
+
+## Cyprus holiday calendar
+
+Data > Cyprus holidays shows an offline calendar by year. Automatic Monday–Saturday distribution skips these dates; manual hours remain allowed (up to 14/day). Lock manual holiday hours to retain them when redistributing. Existing saved hours and historical statements are unchanged.
+
+The calendar follows [Visit Cyprus](https://www.visitcyprus.com/useful-info/time-working-hours-holidays/), checked 2026-11-02, including Christmas Eve; bank-only Easter Tuesday is excluded. Movable dates follow Orthodox Easter. Green Monday is Easter minus 48 days, as in the published table. Pentecost Monday 2029 is May 28 (Easter + 50 days), correcting a June typo in the tourism table; [OCA lists Pentecost Sunday on May 27](https://www.oca.org/readings/daily/2029/05/27). Company-specific days can use Exclude. This calendar plans hours and does not alter pay rates.
 
 ## Run from source
 
@@ -37,7 +43,7 @@ Tests and build instructions: [BUILD.md](BUILD.md). Usage: [USER_GUIDE.md](USER_
 
 The database is stored in `%LOCALAPPDATA%\PayrollSystem\payroll.db`. A verified SQLite backup is created on startup before updating an existing database. `Data > Create database backup` creates another copy; copy backups to a separate drive as well.
 
-Version 1.16.0 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
+Version 1.17.0 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
 
 Uninstall preserves the database and backups. The application never uploads payroll data. Do not commit databases, payroll documents, exports or personal examples to Git.
 

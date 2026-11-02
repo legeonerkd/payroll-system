@@ -14,6 +14,7 @@ from core.models import Employee
 from core.banking import account_caption,payment_details
 from core.rental import rental_for_rate,rental_hint,utilities_for_rate,deduction_mode
 from core.payroll_checks import payroll_checks
+from core.cyprus_holidays import holiday_name
 from ui.payroll_history import PayrollHistory
 from services.paired_payroll_service import pair_plans,save_payroll_pair,print_payroll_pair,PairPrintError
 from config import FIXED_RATE
@@ -164,7 +165,7 @@ class PayrollTab(ttk.Frame):
             else:
                 distribute.grid_configure(row=1,column=3,columnspan=1,sticky='',pady=(4,0))
         allocation.bind('<Configure>',fit_distribution)
-        range_hint=ttk.Label(table_frame,text='Daily range adjusts to match the total, up to 14 h/day. Locked dates keep their hours; excluded dates stay at 0.',style='PayrollHint.TLabel',wraplength=600)
+        range_hint=ttk.Label(table_frame,text='Up to 14 h/day. Cyprus holidays are skipped; locked hours are kept. Manual holiday hours are allowed.',style='PayrollHint.TLabel',wraplength=600)
         range_hint.grid(row=2,column=0,sticky='ew',pady=(7,2))
         range_hint.bind('<Configure>',lambda event:range_hint.configure(wraplength=max(100,event.width)))
         ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
@@ -495,8 +496,8 @@ class PayrollTab(ttk.Frame):
         except ValueError as exc:
             messagebox.showerror('Distribute hours', str(exc))
             return
-        question='Redistribute unlocked Monday-Saturday hours? Locked dates stay unchanged. Excluded dates and unlocked Sundays stay at zero. Other daily edits will be replaced. Save to update the database.'
-        allocated=[hours for day,hours in values.items() if day not in locked and day not in excluded and date.fromisoformat(day).weekday()<6]
+        question='Redistribute available Monday-Saturday hours? Locked dates stay unchanged. Cyprus holidays, excluded dates and unlocked Sundays stay at zero. Other daily edits will be replaced; lock manual holiday hours to keep them. Save to update the database.'
+        allocated=[hours for day,hours in values.items() if day not in locked and day not in excluded and date.fromisoformat(day).weekday()<6 and not holiday_name(day)]
         if allocated and (min(allocated)<lo or max(allocated)>hi):
             question=f'The preferred daily range will be adjusted to fit the requested total (allocated: {min(allocated):g}–{max(allocated):g} hours/day). '+question
         if self._context!=context and self.has_unsaved_changes():
@@ -520,18 +521,21 @@ class PayrollTab(ttk.Frame):
         self.tree.tag_configure("odd", background="#F7F9FC")
         self.tree.tag_configure("even", background="#ffffff")
         self.tree.tag_configure("weekend", background="#F5F1EA", foreground="#7B6851")
+        self.tree.tag_configure('holiday',background='#EEF3FB',foreground='#45658C')
 
         d = start
         row_index = 0
         while d <= end:
             is_weekend = d.weekday() in [5, 6]  # Saturday, Sunday
-            hours = stored.get(d.isoformat(),0.0) if stored else (0.0 if is_weekend else DEFAULT_HOURS)
+            hours = stored.get(d.isoformat(),0.0) if stored else (0.0 if is_weekend or holiday_name(d) else DEFAULT_HOURS)
 
             key = d.strftime("%Y-%m-%d")
             self.days_data[key] = hours
 
             # Determine tag
-            if d.weekday()==6:
+            if holiday_name(d):
+                tag='holiday'
+            elif d.weekday()==6:
                 tag = "weekend"
             else:
                 tag = "odd" if row_index % 2 == 0 else "even"
@@ -585,10 +589,14 @@ class PayrollTab(ttk.Frame):
                 for d in self.days_data if d in self._locked_days or d in self._excluded_days}
 
     def _refresh_day_label(self,day):
-        label='Locked' if day in self._locked_days else 'Excluded' if day in self._excluded_days else 'Sunday' if datetime.fromisoformat(day).weekday()==6 else ''
+        parts=[]
+        if holiday_name(day):parts.append('Holiday: '+holiday_name(day))
+        if day in self._locked_days:parts.append('Locked')
+        elif day in self._excluded_days:parts.append('Excluded')
+        elif datetime.fromisoformat(day).weekday()==6:parts.append('Sunday')
         if day in self._manual_days:
-            label='Locked · edited' if day in self._locked_days else 'Manual edit'
-        self.tree.set(day,'changes',label)
+            parts.append('edited' if day in self._locked_days else 'Manual edit')
+        self.tree.set(day,'changes',' · '.join(parts))
 
     def _toggle_day_rule(self,rule):
         if not self._guard_period_edit():return
