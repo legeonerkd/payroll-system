@@ -256,6 +256,10 @@ class PayrollTab(ttk.Frame):
         selected = next((label for label,e in self.employee_map.items() if e['id']==current_id),None)
         if selected:
             self.employee_cb.set(selected)
+            updated=self.employee_map[selected]
+            keys=('name','bank','iban','bic')+ (('rate',) if self.rate_mode.get()=='custom' else ())
+            if old is not None and self.days_data and any(old[key]!=updated[key] for key in keys):
+                self._payroll_dirty=True
         elif names:
             self.employee_cb.current(0)
         else:
