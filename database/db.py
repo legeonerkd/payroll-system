@@ -13,7 +13,7 @@ from core.models import Employee
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class Database:
@@ -132,6 +132,14 @@ class Database:
                 payroll_id INTEGER NOT NULL REFERENCES payrolls(id),
                 work_date TEXT NOT NULL, hours REAL NOT NULL, rate REAL NOT NULL,
                 amount REAL NOT NULL, PRIMARY KEY(payroll_id,work_date))''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS hour_day_rules (
+                employee_id INTEGER NOT NULL REFERENCES employees(id), work_date TEXT NOT NULL,
+                locked INTEGER NOT NULL CHECK(locked IN (0,1)), excluded INTEGER NOT NULL CHECK(excluded IN (0,1)),
+                CHECK(NOT (locked=1 AND excluded=1)), PRIMARY KEY(employee_id,work_date))''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS distribution_settings (
+                employee_id INTEGER PRIMARY KEY REFERENCES employees(id),
+                min_hours INTEGER NOT NULL CHECK(min_hours>=0 AND min_hours<=24),
+                max_hours INTEGER NOT NULL CHECK(max_hours>=min_hours AND max_hours<=24))''')
             self.conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
 
     def get_employees(self, include_archived=False):
@@ -195,12 +203,49 @@ class Database:
             e = self.get_employee(emp_id)
             if e['archived']:
                 raise ValueError('Employee is archived')
+            excluded={r['work_date'] for r in self.conn.execute('SELECT work_date FROM hour_day_rules WHERE employee_id=? AND excluded=1',(emp_id,))}
+            if any(d in excluded and h!=0 for d,h in values.items()):
+                raise ValueError('Include excluded dates before saving non-zero hours for them')
             self.conn.executemany('''INSERT INTO work_hours(employee_id,work_date,hours,rate)
                 VALUES(?,?,?,?) ON CONFLICT(employee_id,work_date)
                 DO UPDATE SET hours=excluded.hours,rate=excluded.rate''',
                 [(emp_id, day, h, rate) for day, h in values.items()])
 
-    def save_payroll(self, emp_id, values, rate_mode, start, end, utilities=0, rental=0, pdf_path=None):
+    def load_day_rules(self,emp_id,start,end):
+        iso_date(start);iso_date(end)
+        return {r['work_date']:{'locked':bool(r['locked']),'excluded':bool(r['excluded'])}
+                for r in self.conn.execute('SELECT * FROM hour_day_rules WHERE employee_id=? AND work_date BETWEEN ? AND ?',
+                                            (emp_id,start,end))}
+
+    def load_distribution_settings(self,emp_id):
+        row=self.conn.execute('SELECT min_hours,max_hours FROM distribution_settings WHERE employee_id=?',(emp_id,)).fetchone()
+        return (row['min_hours'],row['max_hours']) if row else (0,24)
+
+    def save_period_hours(self,emp_id,values,day_rules,settings,rate=None):
+        values=hours_map(values)
+        checked={}
+        for day,rule in day_rules.items():
+            iso_date(day)
+            if day not in values or set(rule)!={'locked','excluded'} or any(type(v) is not bool for v in rule.values()):
+                raise ValueError('Day rules must use boolean flags for dates in the saved hours')
+            if rule['locked'] and rule['excluded']:
+                raise ValueError('A date cannot be both locked and excluded')
+            if rule['excluded'] and values[day]!=0:
+                raise ValueError('Excluded dates must have zero hours')
+            if rule['locked'] or rule['excluded']: checked[day]=rule
+        lo,hi=[number(v,'Daily range',maximum=24) for v in settings]
+        if lo!=lo.to_integral_value() or hi!=hi.to_integral_value() or lo>hi:
+            raise ValueError('Daily range must use whole numbers with Min <= Max')
+        with self.transaction():
+            self.conn.executemany('DELETE FROM hour_day_rules WHERE employee_id=? AND work_date=?',[(emp_id,d) for d in values])
+            self.conn.executemany('INSERT INTO hour_day_rules(employee_id,work_date,locked,excluded) VALUES(?,?,?,?)',
+                [(emp_id,d,int(r['locked']),int(r['excluded'])) for d,r in checked.items()])
+            self.save_hours_batch(emp_id,values,rate=rate)
+            self.conn.execute('''INSERT INTO distribution_settings(employee_id,min_hours,max_hours) VALUES(?,?,?)
+                ON CONFLICT(employee_id) DO UPDATE SET min_hours=excluded.min_hours,max_hours=excluded.max_hours''',
+                (emp_id,int(lo),int(hi)))
+
+    def save_payroll(self, emp_id, values, rate_mode, start, end, utilities=0, rental=0, pdf_path=None, *, day_rules=None, distribution_settings=(0,24)):
         iso_date(start); iso_date(end)
         values = hours_map(values)
         if start > end or not values or any(not start <= d <= end for d in values):
@@ -215,7 +260,10 @@ class Database:
                             total_hours=summary.total_hours, gross_amount=summary.gross_amount, net_amount=summary.net_amount)
             fingerprint = hashlib.sha256(json.dumps([snapshot, sorted(values.items())], sort_keys=True).encode()).hexdigest()
             existing = self.conn.execute('SELECT id FROM payrolls WHERE fingerprint=?', (fingerprint,)).fetchone()
-            self.save_hours_batch(emp_id, values, rate=rate)
+            if day_rules is None:
+                self.save_hours_batch(emp_id, values, rate=rate)
+            else:
+                self.save_period_hours(emp_id,values,day_rules,distribution_settings,rate=rate)
             if existing:
                 self.conn.execute('UPDATE payrolls SET pdf_path=COALESCE(?,pdf_path) WHERE id=?', (pdf_path, existing['id']))
                 return existing['id']

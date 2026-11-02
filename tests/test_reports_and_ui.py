@@ -216,6 +216,79 @@ def test_cancel_or_invalid_distribution_preserves_hours(ui,monkeypatch):
     assert db.load_hours(first,'2026-05-01','2026-05-01')[0]['hours'] == 7
 
 
+def test_pins_exclusions_range_survive_save_reload_and_distribution(ui,monkeypatch):
+    tab,db,first,_=ui
+    select(tab,first);tab.to_entry.set_date(date(2026,5,4))
+    tab._generate_period()
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
+    tab.tree.selection_set('2026-05-01');tab._toggle_day_rule('locked')
+    tab.tree.selection_set('2026-05-02');tab._toggle_day_rule('excluded')
+    tab.distribution_min_var.set('8');tab.distribution_max_var.set('12')
+    tab.distribution_hours_var.set('20')
+    tab._distribute_hours()
+    assert tab.days_data=={'2026-05-01':10,'2026-05-02':0,'2026-05-03':0,'2026-05-04':10}
+    assert tab._locked_days=={'2026-05-01'} and tab._excluded_days=={'2026-05-02'}
+    assert not db.load_day_rules(first,'2026-05-01','2026-05-04')
+    tab._save_draft();tab._generate_period()
+    assert tab._locked_days=={'2026-05-01'} and tab._excluded_days=={'2026-05-02'}
+    assert db.load_distribution_settings(first)==(8,12)
+    original=dict(tab.days_data)
+    errors=[]
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:errors.append(a))
+    tab.distribution_hours_var.set('30');tab._distribute_hours()
+    assert errors and tab.days_data==original
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save')
+    assert db.load_day_rules(first,'2026-05-01','2026-05-04')['2026-05-01']['locked']
+
+
+def test_date_locks_do_not_leak_when_switching_employee(ui,monkeypatch):
+    tab,db,first,second=ui
+    select(tab,first);tab._generate_period()
+    tab.tree.selection_set('2026-05-01');tab._toggle_day_rule('locked')
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
+    tab._save_draft()
+    select(tab,second);tab._employee_changed()
+    assert not tab._locked_days and not tab._excluded_days
+    assert tab._distribution_settings()==(0,24)
+
+
+def test_excluded_date_must_be_included_before_edit_or_lock(ui,monkeypatch):
+    tab,db,first,_=ui
+    select(tab,first);tab._generate_period()
+    warnings=[]
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showwarning',lambda *a:warnings.append(a))
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:warnings.append(a))
+    tab.tree.selection_set('2026-05-01');tab._toggle_day_rule('excluded')
+    tab._toggle_day_rule('locked')
+    assert warnings and not tab._locked_days
+    tab._editor=tk.Spinbox(tab.tree)
+    tab._editor.delete(0,'end');tab._editor.insert(0,'8')
+    tab._save_hours('2026-05-01')
+    assert tab.days_data['2026-05-01']==0 and tab._editor is not None
+    tab._cancel_hours_edit()
+    tab._toggle_day_rule('excluded')
+    assert not tab._excluded_days and tab.days_data['2026-05-01']==0
+
+
+def test_fractional_pin_incompatible_total_keeps_entire_table(ui,monkeypatch):
+    tab,db,first,_=ui
+    select(tab,first);tab.to_entry.set_date(date(2026,5,2));tab._generate_period()
+    tab._editor=tk.Spinbox(tab.tree)
+    tab._editor.delete(0,'end');tab._editor.insert(0,'8.5')
+    tab._save_hours('2026-05-01')
+    tab.tree.selection_set('2026-05-01');tab._toggle_day_rule('locked')
+    original=dict(tab.days_data)
+    messages=[]
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:messages.append(a))
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
+    tab.distribution_hours_var.set('18');tab._distribute_hours()
+    assert messages and tab.days_data==original and tab._locked_days=={'2026-05-01'}
+    tab.distribution_hours_var.set('18.5');tab._distribute_hours()
+    assert tab.days_data['2026-05-01']==8.5 and tab.days_data['2026-05-02']==10
+
+
 def test_switch_loads_own_hours_and_recalculates(ui):
     tab,db,first,second=ui
     db.save_hours(first,'2026-05-01',8);db.save_hours(second,'2026-05-01',6)
