@@ -1,4 +1,4 @@
-# PayrollSystem 1.14.1 — usage
+# PayrollSystem 1.15.0 — usage
 
 ## Payroll screen
 
@@ -151,7 +151,7 @@ unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.
 
-## Saved rental and utilities reminder (1.14.1)
+## Saved rental and utilities reminder (1.15.0)
 
 In Employees, set Rental / statement (€) once; 0 disables the saved rental deduction.
 The saved amount is also shown in the Employees table under Rental (€).
@@ -159,17 +159,49 @@ The amount applies to every new statement of the appropriate type, without month
 Bank account Yes → Fixed rate; Bank account No → Employee rate. Not specified does not
 apply rental and shows a reminder to declare the status. Payroll has no separate rental input;
 the saved amount is included automatically in Deductions and Net pay for the matching mode. Changing the mode
-does not copy the deduction into both parts. Utilities stay manual and may be zero.
+does not copy the deduction into both parts. Utilities stay manual and may be zero; they follow
+the same bank-status rule as rental. Enter the amount once and it applies only to the matching rate.
 
 Before Print with a positive rental deduction, an inline Utilities reminder appears.
-It requires no answer and printing continues with the currently entered utilities amount,
+It requires no answer and printing continues with the utilities amount applicable to this rate,
 including zero. Review or edit utilities before pressing Print if a different amount is needed.
 The reminder is informational; it does not enter a charge automatically. Preview/save do not
 trigger this print reminder. Existing saved statements retain their original deductions.
 
-Excel import uses the same saved employee rental amount and declared bank status; it no longer
+Excel import routes both rental and entered utilities by the same declared bank status; it no longer
 uses a single manual rental value for everyone. New employees default to a saved rental of zero.
 For an existing employee, imported name/rate/bank updates preserve the saved rental amount.
 
 Schema 7 adds the saved rental field with a default of zero. A verified pre-migration backup
 is created first. Old statement deductions are not guessed as future recurring settings.
+
+## Save both PDFs (1.15.0)
+
+Load the selected employee's period, enter utilities once (0 is valid) and click Save both PDFs.
+The app creates two separately named files, fixed and custom, with the same daily hours.
+It saves both statements together; a failure rolls back both new statements and removes new files.
+This action is for the selected employee, not a batch across employees. The selected rate and
+entered utilities remain unchanged. Save payroll + PDF, Preview PDF and Print still act on the selected rate.
+
+Both rental and utilities follow Bank account: Yes → Fixed rate; No → Employee rate;
+Not specified → neither deduction, with a status reminder. When a bank account appears, change
+Bank account to Yes in Employee Details and save the card. The app refreshes the card before output,
+so a saved No→Yes change routes both deductions into the new fixed statement and zero into custom.
+Entering banking details while explicitly leaving the declaration No does not override that declaration.
+
+If statements already exist, saving both asks to create corrected versions for the same rate and
+exact period. Originals remain in history. Review any other overlapping periods before confirming.
+After a bank-status change, use Save both PDFs to correct both current parts together; saving only
+one part cannot leave misplaced deductions in the other. A concurrent card/history change cancels
+new output rather than overwriting it.
+
+Monthly summary adds the money from both current parts and counts their matching period hours once.
+Old unlinked statements of opposite rates remain excluded pending explicit paired correction.
+Duplicate statements of the same rate, differing daily hours in a pair, or positive deductions
+in both parts are excluded pending review. Original statements remain available.
+
+Database format 8 protects independently corrected rate pairs from older applications that treat
+all statements of one period as a single correction group. The new payroll_pairs table records
+the explicit relationship; old records are not automatically guessed as pairs. A verified format-7 backup is made
+before upgrading; existing rows, bank details and historical amounts are unchanged. Use the
+pre-upgrade backup if a return to an older app version is necessary.

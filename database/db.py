@@ -15,7 +15,7 @@ from core.rental import rental_amount as validate_rental_amount
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class PayrollConflictError(ValueError):
@@ -160,6 +160,10 @@ class Database:
             self.conn.execute('''INSERT INTO payroll_content_keys(payroll_id,content_hash)
                 SELECT p.id,p.fingerprint FROM payrolls p WHERE NOT EXISTS
                 (SELECT 1 FROM payroll_content_keys k WHERE k.payroll_id=p.id)''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS payroll_pairs (
+                fixed_id INTEGER NOT NULL REFERENCES payrolls(id),
+                custom_id INTEGER NOT NULL REFERENCES payrolls(id),
+                PRIMARY KEY(fixed_id,custom_id),CHECK(fixed_id<>custom_id))''')
             self.conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
 
     def get_employees(self, include_archived=False):
@@ -277,7 +281,7 @@ class Database:
     def payroll_save_plan(self,emp_id,values,rate_mode,start,end,utilities=0,rental=0):
         self._prepare_payroll(emp_id,values,rate_mode,start,end,utilities,rental)
         current=self.get_payrolls(current_only=True)
-        exact=[p for p in current if p['employee_id']==emp_id and p['period_from']==start and p['period_to']==end]
+        exact=[p for p in current if p['employee_id']==emp_id and p['rate_mode']==rate_mode and p['period_from']==start and p['period_to']==end]
         overlaps=[p for p in current if p['employee_id']==emp_id and p['period_from']<=end and p['period_to']>=start
                   and not(p['period_from']==start and p['period_to']==end)]
         return {'exact':exact,'overlaps':overlaps}
@@ -339,6 +343,16 @@ class Database:
                                  [(payroll_id,r.date,r.hours,r.rate,r.amount) for r in rows])
             return payroll_id
 
+    def register_payroll_pair(self,fixed_id,custom_id):
+        with self.transaction():
+            fixed,fixed_days=self.get_payroll_full(fixed_id)
+            custom,custom_days=self.get_payroll_full(custom_id)
+            if fixed['rate_mode']!='fixed' or custom['rate_mode']!='custom' or any(fixed[key]!=custom[key] for key in ('employee_id','period_from','period_to')):
+                raise ValueError('A pair must contain fixed and employee rates for the same employee and period')
+            if [(d['work_date'],d['hours']) for d in fixed_days]!=[(d['work_date'],d['hours']) for d in custom_days]:
+                raise ValueError('Both statements in a pair must have the same daily hours')
+            self.conn.execute('INSERT OR IGNORE INTO payroll_pairs(fixed_id,custom_id) VALUES(?,?)',(fixed_id,custom_id))
+
     def get_payrolls(self,current_only=False):
         query='''SELECT p.*,
             (SELECT GROUP_CONCAT(replaces_id, ', ') FROM payroll_revision_links WHERE payroll_id=p.id) AS corrects,
@@ -355,8 +369,18 @@ class Database:
         selected=[p for p in current if first<=p['period_to']<=last]
         groups={}
         for p in current:
-            groups.setdefault((p['employee_id'],p['period_from'],p['period_to']),[]).append(p)
+            groups.setdefault((p['employee_id'],p['period_from'],p['period_to'],p['rate_mode']),[]).append(p)
         ambiguous={p['id'] for g in groups.values() if len(g)>1 for p in g}
+        periods={}
+        for p in current:periods.setdefault((p['employee_id'],p['period_from'],p['period_to']),[]).append(p)
+        paired_periods=set()
+        registered_pairs={frozenset((r['fixed_id'],r['custom_id'])) for r in self.conn.execute('SELECT * FROM payroll_pairs')}
+        for key,records in periods.items():
+            if len(records)==2 and len({p['rate_mode'] for p in records})==2:
+                days=[[(d['work_date'],d['hours']) for d in self.get_payroll_full(p['id'])[1]] for p in records]
+                if frozenset(p['id'] for p in records) not in registered_pairs or days[0]!=days[1] or all(p['rental']>0 or p['utilities']>0 for p in records):
+                    ambiguous.update(p['id'] for p in records)
+                else:paired_periods.add(key)
         employees={}
         def employee(eid):
             if eid not in employees:
@@ -364,16 +388,21 @@ class Database:
                 employees[eid]={'employee_id':eid,'name':e['name'],'hours':Decimal(0),'gross':Decimal(0),
                     'deductions':Decimal(0),'net':Decimal(0),'draft_hours':Decimal(0),'draft_days':0,'payroll_ids':[],'review_ids':[]}
             return employees[eid]
-        included=[];review=[];overlaps=[]
+        included=[];review=[];overlaps=[];counted_periods=set()
         for p in selected:
             e=employee(p['employee_id'])
             if p['id'] in ambiguous:
                 review.append(p['id']);e['review_ids'].append(p['id']);continue
             included.append(p['id']);e['payroll_ids'].append(p['id'])
-            for key,column in [('hours','total_hours'),('gross','gross_amount'),('net','net_amount')]:
+            period_key=(p['employee_id'],p['period_from'],p['period_to'])
+            if period_key not in paired_periods or period_key not in counted_periods:
+                e['hours']+=Decimal(str(p['total_hours']))
+                counted_periods.add(period_key)
+            for key,column in [('gross','gross_amount'),('net','net_amount')]:
                 e[key]+=Decimal(str(p[column]))
             e['deductions']+=Decimal(str(p['utilities']))+Decimal(str(p['rental']))
-            if any(q['id']!=p['id'] and q['employee_id']==p['employee_id'] and q['period_from']<=p['period_to'] and q['period_to']>=p['period_from'] for q in current):
+            if any(q['id']!=p['id'] and q['employee_id']==p['employee_id'] and q['period_from']<=p['period_to'] and q['period_to']>=p['period_from']
+                   and not(period_key in paired_periods and q['period_from']==p['period_from'] and q['period_to']==p['period_to']) for q in current):
                 overlaps.append(p['id'])
         issued={}
         for r in self.conn.execute('''SELECT p.employee_id,d.work_date,d.hours FROM payroll_days d JOIN payrolls p ON p.id=d.payroll_id

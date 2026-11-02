@@ -59,7 +59,7 @@ class MonthlySummary(tk.Toplevel):
         t=self.data['totals']
         self.totals.set(f'Issued hours: {t["hours"]:g}    Gross: {t["gross"]:.2f} €    Deductions: {t["deductions"]:.2f} €    Net pay: {t["net"]:.2f} €')
         self.notice.set(f'{len(self.data["included_ids"])} current statements included. '
-            f'{len(self.data["review_ids"])} duplicate-period statements excluded pending review. '
+            f'{len(self.data["review_ids"])} duplicate or inconsistent statements excluded pending review. '
             f'{len(self.data["overlap_ids"])} overlapping statements included. Draft hours are separate from pay totals.')
 
     def _selected(self):
