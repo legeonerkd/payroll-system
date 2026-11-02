@@ -37,321 +37,184 @@ class PayrollTab(ttk.Frame):
         self._editor = None
         self._context = None
         self._dirty = False
+        self._payroll_dirty = False
+        self._saved_kind = 'loaded'
+        self._manual_days = set()
+        self._editing_row = None
+        self.save_status_var = tk.StringVar(value='Load a period to begin')
 
         self._build_ui()
         self._load_employees()
         
         # Bind auto-recalculation
-        self.rate_mode.trace_add("write", lambda *args: self._auto_recalculate())
-        self.utilities_var.trace_add("write", lambda *args: self._auto_recalculate())
-        self.rental_var.trace_add("write", lambda *args: self._auto_recalculate())
+        self.rate_mode.trace_add("write", self._parameters_changed)
+        self.utilities_var.trace_add("write", self._parameters_changed)
+        self.rental_var.trace_add("write", self._parameters_changed)
 
     # ======================================================
     # UI LAYOUT - 3 ZONES (Header / Content / Summary)
     # ======================================================
 
     def _build_ui(self):
-        """Профессиональный layout с 3 зонами"""
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=0)  # Header
-        self.rowconfigure(1, weight=1)  # Content
-        self.rowconfigure(2, weight=0)  # Summary
-
-        # ========== ZONE 1: HEADER ==========
+        self.rowconfigure(1, weight=1)
         self._build_header()
-
-        # ========== ZONE 2: CONTENT ==========
         self._build_content()
 
-        # ========== ZONE 3: SUMMARY ==========
-        self._build_summary()
-
-    # ======================================================
-    # ZONE 1: HEADER (Employee / Period / Generate)
-    # ======================================================
-
     def _build_header(self):
-        """Горизонтальная панель управления"""
-        header = ttk.Frame(self, style="Card.TFrame", padding=12)
-        header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
-
-        # Employee
-        ttk.Label(header, text="Employee:", font=("Segoe UI", 10, "bold")).grid(
-            row=0, column=0, sticky="w", padx=(0, 5)
-        )
-        self.employee_cb = ttk.Combobox(header, state="readonly", width=25)
-        self.employee_cb.grid(row=0, column=1, sticky="w", padx=(0, 20))
+        header = ttk.Frame(self, style='Card.TFrame', padding=12)
+        header.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
+        header.columnconfigure(0, weight=1)
+        for column, text in enumerate(('Employee', 'From', 'To')):
+            ttk.Label(header, text=text, style='PayrollHint.TLabel').grid(row=0, column=column, sticky='w', padx=(0,12))
+        self.employee_cb = ttk.Combobox(header, state='readonly', width=24)
+        self.employee_cb.grid(row=1, column=0, sticky='ew', padx=(0,12), pady=(4,0))
         self.employee_cb.bind('<<ComboboxSelected>>', self._employee_changed)
-
-        # Period From
-        ttk.Label(header, text="From:", font=("Segoe UI", 10, "bold")).grid(
-            row=0, column=2, sticky="w", padx=(0, 5)
-        )
-        self.from_entry = DateEntry(
-            header, date_pattern="dd-mm-yyyy", firstweekday="monday", width=12
-        )
-        self.from_entry.grid(row=0, column=3, sticky="w", padx=(0, 10))
-
-        # Period To
-        ttk.Label(header, text="To:", font=("Segoe UI", 10, "bold")).grid(
-            row=0, column=4, sticky="w", padx=(0, 5)
-        )
-        self.to_entry = DateEntry(
-            header, date_pattern="dd-mm-yyyy", firstweekday="monday", width=12
-        )
-        self.to_entry.grid(row=0, column=5, sticky="w", padx=(0, 20))
-
-        # Generate Button
-        ttk.Button(
-            header,
-            text="⚡ Generate Period",
-            command=self._generate_period,
-            style="Accent.TButton",
-        ).grid(row=0, column=6, sticky="w")
-
-        allocation = ttk.Frame(header)
-        allocation.grid(row=1, column=0, columnspan=7, sticky='w', pady=(10,0))
-        ttk.Label(allocation, text='Total hours:').pack(side='left', padx=(0,5))
-        ttk.Entry(allocation, textvariable=self.distribution_hours_var, width=12).pack(side='left', padx=(0,10))
-        ttk.Button(allocation, text='Distribute Mon-Sat', command=self._distribute_hours).pack(side='left')
-        ttk.Label(allocation, text='  Whole hours, varied by day. Sundays: 0.').pack(side='left')
-
-    # ======================================================
-    # ZONE 2: CONTENT (Hours Table + Rate + Deductions + PDF)
-    # ======================================================
+        self.from_entry = DateEntry(header, date_pattern='dd-mm-yyyy', firstweekday='monday', width=12)
+        self.to_entry = DateEntry(header, date_pattern='dd-mm-yyyy', firstweekday='monday', width=12)
+        self.from_entry.grid(row=1, column=1, padx=(0,12), pady=(4,0))
+        self.to_entry.grid(row=1, column=2, padx=(0,12), pady=(4,0))
+        for entry in (self.from_entry,self.to_entry):
+            entry.bind('<<DateEntrySelected>>', lambda e:self._update_save_status(), add='+')
+            entry.bind('<FocusOut>', lambda e:self._update_save_status(), add='+')
+        ttk.Button(header, text='Load period', command=self._generate_period, style='PayrollSecondary.TButton').grid(row=1,column=3,pady=(4,0))
 
     def _build_content(self):
-        """Основная рабочая зона"""
         content = ttk.Frame(self)
-        content.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
-        content.columnconfigure(0, weight=1)
-        content.columnconfigure(1, weight=0)
-        content.rowconfigure(0, weight=1)
-
-        # LEFT: Hours Table
+        content.grid(row=1,column=0,sticky='nsew',padx=10,pady=(5,10))
+        content.columnconfigure(0,weight=1)
+        content.rowconfigure(0,weight=1)
         self._build_hours_table(content)
-
-        # RIGHT: Rate + Deductions + PDF
         self._build_right_panel(content)
 
-    def _build_hours_table(self, parent):
-        """Улучшенная таблица часов с zebra-стилем и итогами"""
-        table_frame = ttk.Frame(parent, style="Card.TFrame", padding=10)
-        table_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+    def _build_hours_table(self,parent):
+        table_frame = ttk.Frame(parent,style='Card.TFrame',padding=12)
+        table_frame.grid(row=0,column=0,sticky='nsew',padx=(0,12))
+        table_frame.columnconfigure(0,weight=1)
+        table_frame.rowconfigure(4,weight=1)
+        heading=ttk.Frame(table_frame,style='PayrollCard.TFrame')
+        heading.grid(row=0,column=0,sticky='ew',pady=(0,10))
+        ttk.Label(heading,text='Working hours',style='PayrollHeading.TLabel').pack(side='left')
+        self.save_status_label=ttk.Label(heading,textvariable=self.save_status_var,style='PayrollStatus.TLabel',wraplength=210,justify='right')
+        self.save_status_label.pack(side='right',padx=(8,0))
+        allocation=ttk.Frame(table_frame,style='PayrollCard.TFrame')
+        allocation.grid(row=1,column=0,sticky='ew')
+        ttk.Label(allocation,text='Total to distribute',style='PayrollHint.TLabel').grid(row=0,column=0,sticky='w')
+        ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,10))
+        ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton').grid(row=1,column=1,pady=(4,0))
+        ttk.Label(table_frame,text='Whole hours with variation. Sundays stay at 0.',style='PayrollHint.TLabel').grid(row=2,column=0,sticky='w',pady=(7,2))
+        ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
+        container=ttk.Frame(table_frame,style='PayrollCard.TFrame')
+        container.grid(row=4,column=0,sticky='nsew')
+        container.rowconfigure(0,weight=1)
+        container.columnconfigure(0,weight=1)
+        self.tree=ttk.Treeview(container,columns=('date','day','hours','changes'),show='headings',height=5,style='Payroll.Treeview')
+        scrollbar=ttk.Scrollbar(container,orient='vertical',command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.grid(row=0,column=0,sticky='nsew')
+        scrollbar.grid(row=0,column=1,sticky='ns')
+        for column,label,width in [('date','Date',105),('day','Day',100),('hours','Hours',65),('changes','Changes',100)]:
+            self.tree.heading(column,text=label,anchor='e' if column=='hours' else 'w')
+            self.tree.column(column,width=width,minwidth=60,anchor='e' if column=='hours' else 'w',stretch=column!='hours')
+        self.tree.bind('<Double-1>',self._start_edit_hours)
+        self.tree.bind('<Button-1>',self.clear_selection_on_click,add='+')
+        self.total_label=ttk.Label(table_frame,text='Total: 0 hours',style='PayrollHeading.TLabel')
+        self.total_label.grid(row=5,column=0,sticky='e',pady=(10,0))
 
-        ttk.Label(
-            table_frame, text="📅 Working Hours", font=("Segoe UI", 11, "bold")
-        ).pack(anchor="w", pady=(0, 8))
-
-        # Treeview with scrollbar
-        tree_container = ttk.Frame(table_frame)
-        tree_container.pack(fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(tree_container, orient="vertical")
-        scrollbar.pack(side="right", fill="y")
-
-        self.tree = ttk.Treeview(
-            tree_container,
-            columns=("date", "day", "hours"),
-            show="headings",
-            yscrollcommand=scrollbar.set,
-        )
-        scrollbar.config(command=self.tree.yview)
-
-        self.tree.heading("date", text="Date", anchor="center")
-        self.tree.heading("day", text="Day", anchor="center")
-        self.tree.heading("hours", text="Hours", anchor="center")
-
-        self.tree.column("date", width=120, anchor="center")
-        self.tree.column("day", width=150, anchor="center")
-        self.tree.column("hours", width=100, anchor="center")
-
-        self.tree.pack(fill="both", expand=True)
-
-        # Bind events
-        self.tree.bind("<Double-1>", self._start_edit_hours)
-        self.tree.bind("<Button-1>", self.clear_selection_on_click, add="+")
-
-        # Total row label
-        self.total_label = ttk.Label(
-            table_frame,
-            text="Total: 0.0 hours",
-            font=("Segoe UI", 10, "bold"),
-            foreground="#2563eb",
-        )
-        self.total_label.pack(anchor="e", pady=(5, 0))
-
-    def _build_right_panel(self, parent):
-        """Правая панель: Rate Type + Deductions + PDF"""
-        right = ttk.Frame(parent)
-        right.grid(row=0, column=1, sticky="nsew")
-
-        # Rate Type Card
+    def _build_right_panel(self,parent):
+        shell=ttk.Frame(parent,style='Card.TFrame')
+        shell.grid(row=0,column=1,sticky='nsew')
+        shell.rowconfigure(0,weight=1)
+        shell.columnconfigure(0,weight=1)
+        self.sidebar_canvas=tk.Canvas(shell,background='white',highlightthickness=0,borderwidth=0,width=265,height=1)
+        self.sidebar_canvas.grid(row=0,column=0,sticky='nsew')
+        scrollbar=ttk.Scrollbar(shell,orient='vertical',command=self.sidebar_canvas.yview)
+        self.sidebar_canvas.configure(yscrollcommand=scrollbar.set)
+        right=ttk.Frame(self.sidebar_canvas,style='PayrollCard.TFrame',padding=10)
+        window=self.sidebar_canvas.create_window(0,0,anchor='nw',window=right)
+        self.sidebar_content=right
+        def resize(event=None):
+            self.sidebar_canvas.configure(width=max(245,right.winfo_reqwidth()))
+            self.sidebar_canvas.itemconfigure(window,width=max(self.sidebar_canvas.winfo_width(),right.winfo_reqwidth()))
+            self.sidebar_canvas.configure(scrollregion=self.sidebar_canvas.bbox('all'))
+            if right.winfo_reqheight()>self.sidebar_canvas.winfo_height():
+                scrollbar.grid(row=0,column=1,sticky='ns')
+            else:
+                scrollbar.grid_remove()
+                self.sidebar_canvas.yview_moveto(0)
+        self.sidebar_canvas.bind('<Configure>',resize)
+        right.bind('<Configure>',resize)
+        right.columnconfigure(0,weight=1)
         self._build_rate_card(right)
-
-        # Deductions Card
         self._build_deductions_card(right)
-
-        # PDF Actions
+        self._build_summary(right)
         self._build_pdf_actions(right)
-        ttk.Button(right, text='Save hours (draft)', command=self._save_draft).pack(fill='x', pady=5)
+        def bind_scroll(widget):
+            widget.bind('<MouseWheel>',self._scroll_sidebar,add='+')
+            widget.bind('<FocusIn>',self._ensure_sidebar_visible,add='+')
+            for child in widget.winfo_children(): bind_scroll(child)
+        bind_scroll(right)
 
-    def _build_rate_card(self, parent):
-        """Карточка Rate Type с радиокнопками"""
-        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
-        card.pack(fill="x", pady=(0, 10))
+    def _scroll_sidebar(self,event):
+        if self.sidebar_canvas.yview()!=(0.0,1.0):
+            self.sidebar_canvas.yview_scroll(-1 if event.delta>0 else 1,'units')
+            return 'break'
 
-        ttk.Label(card, text="💰 Rate Type", font=("Segoe UI", 11, "bold")).pack(
-            anchor="w", pady=(0, 8)
-        )
+    def _ensure_sidebar_visible(self,event):
+        canvas=self.sidebar_canvas
+        total=self.sidebar_content.winfo_height()
+        if total<=canvas.winfo_height(): return
+        top=event.widget.winfo_rooty()-self.sidebar_content.winfo_rooty()
+        bottom=top+event.widget.winfo_height()
+        visible_top=canvas.canvasy(0)
+        if top<visible_top: canvas.yview_moveto(top/total)
+        elif bottom>visible_top+canvas.winfo_height():
+            canvas.yview_moveto((bottom-canvas.winfo_height())/total)
 
-        ttk.Radiobutton(
-            card,
-            text=f"Fixed Rate ({FIXED_RATE} €/h)",
-            variable=self.rate_mode,
-            value="fixed",
-        ).pack(anchor="w", pady=2)
+    def _build_rate_card(self,parent):
+        card=ttk.Frame(parent,style='PayrollCard.TFrame')
+        card.grid(row=0,column=0,sticky='ew')
+        ttk.Label(card,text='Hourly rate',style='PayrollHeading.TLabel').pack(anchor='w',pady=(0,4))
+        ttk.Radiobutton(card,text=f'Fixed rate ({FIXED_RATE} €/h)',variable=self.rate_mode,value='fixed',style='Payroll.TRadiobutton').pack(anchor='w')
+        self.custom_rate_label=ttk.Radiobutton(card,text='Employee rate',variable=self.rate_mode,value='custom',style='Payroll.TRadiobutton')
+        self.custom_rate_label.pack(anchor='w')
 
-        ttk.Radiobutton(
-            card,
-            text="Employee Custom Rate",
-            variable=self.rate_mode,
-            value="custom",
-        ).pack(anchor="w", pady=2)
+    def _build_deductions_card(self,parent):
+        card=ttk.Frame(parent,style='PayrollCard.TFrame')
+        card.grid(row=1,column=0,sticky='ew',pady=(10,0))
+        card.columnconfigure((0,1),weight=1)
+        ttk.Label(card,text='Deductions',style='PayrollHeading.TLabel').grid(row=0,column=0,columnspan=2,sticky='w',pady=(0,4))
+        for column,(label,variable) in enumerate([('Utilities (€)',self.utilities_var),('Rental (€)',self.rental_var)]):
+            ttk.Label(card,text=label,style='PayrollHint.TLabel').grid(row=1,column=column,sticky='w')
+            ttk.Entry(card,textvariable=variable,width=11).grid(row=2,column=column,sticky='ew',pady=(3,0),padx=(0,8) if column==0 else 0)
 
-    def _build_deductions_card(self, parent):
-        """Карточка Deductions с preview расчёта"""
-        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
-        card.pack(fill="x", pady=(0, 10))
+    def _build_summary(self,parent):
+        card=ttk.Frame(parent,style='PayrollCard.TFrame')
+        card.grid(row=2,column=0,sticky='ew',pady=(10,0))
+        card.columnconfigure(1,weight=1)
+        ttk.Separator(card).grid(row=0,column=0,columnspan=2,sticky='ew',pady=(0,7))
+        for row,(label,variable) in enumerate([('Total hours',self.total_hours_var),('Gross pay',self.gross_var),('Deductions',self.deductions_var)],1):
+            ttk.Label(card,text=label,style='PayrollHint.TLabel').grid(row=row,column=0,sticky='w',pady=1)
+            value=ttk.Label(card,textvariable=variable,style='PayrollBody.TLabel')
+            value.grid(row=row,column=1,sticky='e')
+            if label=='Deductions': self.deductions_preview=value
+        ttk.Label(card,text='Net pay',style='PayrollHeading.TLabel').grid(row=4,column=0,sticky='w',pady=(8,0))
+        ttk.Label(card,textvariable=self.net_var,style='PayrollNet.TLabel').grid(row=4,column=1,sticky='e',pady=(8,0))
 
-        ttk.Label(card, text="📉 Deductions", font=("Segoe UI", 11, "bold")).pack(
-            anchor="w", pady=(0, 8)
-        )
+    def _build_pdf_actions(self,parent):
+        card=ttk.Frame(parent,style='PayrollCard.TFrame')
+        card.grid(row=3,column=0,sticky='ew',pady=(10,0))
+        card.columnconfigure(0,weight=1)
+        ttk.Button(card,text='Save hours',command=self._save_draft,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew')
+        ttk.Label(card,text='Save a draft. No payroll is issued.',style='PayrollHint.TLabel').grid(row=1,column=0,sticky='w',pady=(3,8))
+        ttk.Button(card,text='Save payroll + PDF',command=self._save_pdf,style='Accent.TButton').grid(row=2,column=0,sticky='ew')
+        secondary=ttk.Frame(card,style='PayrollCard.TFrame')
+        secondary.grid(row=3,column=0,sticky='ew',pady=(5,0))
+        secondary.columnconfigure((0,1),weight=1)
+        ttk.Button(secondary,text='Preview PDF',command=self._preview_pdf,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew',padx=(0,5))
+        ttk.Button(secondary,text='Print',command=self._print_pdf,style='PayrollSecondary.TButton').grid(row=0,column=1,sticky='ew')
+        ttk.Label(card,text='Preview and print do not save changes.',style='PayrollHint.TLabel').grid(row=4,column=0,sticky='w',pady=(5,0))
 
-        # Utilities
-        ttk.Label(card, text="Utilities (€):").pack(anchor="w", pady=(0, 2))
-        utilities_entry = ttk.Entry(card, textvariable=self.utilities_var, width=15)
-        utilities_entry.pack(anchor="w", pady=(0, 8))
-
-        # Rental
-        ttk.Label(card, text="Rental (€):").pack(anchor="w", pady=(0, 2))
-        rental_entry = ttk.Entry(card, textvariable=self.rental_var, width=15)
-        rental_entry.pack(anchor="w", pady=(0, 8))
-
-        # Preview
-        ttk.Separator(card, orient="horizontal").pack(fill="x", pady=8)
-        
-        preview_frame = ttk.Frame(card)
-        preview_frame.pack(fill="x")
-
-        ttk.Label(preview_frame, text="Total Deductions:", font=("Segoe UI", 9)).pack(
-            anchor="w"
-        )
-        self.deductions_preview = ttk.Label(
-            preview_frame,
-            text="0.00 €",
-            font=("Segoe UI", 10, "bold"),
-            foreground="#dc2626",
-        )
-        self.deductions_preview.pack(anchor="w")
-
-    def _build_pdf_actions(self, parent):
-        """Горизонтальные PDF кнопки"""
-        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
-        card.pack(fill="x", pady=(0, 10))
-
-        ttk.Label(card, text="📄 PDF Actions", font=("Segoe UI", 11, "bold")).pack(
-            anchor="w", pady=(0, 8)
-        )
-
-        # Buttons in horizontal layout
-        btn_frame = ttk.Frame(card)
-        btn_frame.pack(fill="x")
-
-        ttk.Button(
-            btn_frame,
-            text="👁 Preview",
-            command=self._preview_pdf,
-            style="Accent.TButton",
-            width=10,
-        ).pack(side="left", padx=(0, 5))
-
-        ttk.Button(
-            btn_frame,
-            text="💾 Save",
-            command=self._save_pdf,
-            style="Success.TButton",
-            width=10,
-        ).pack(side="left", padx=(0, 5))
-
-        ttk.Button(
-            btn_frame,
-            text="🖨 Print",
-            command=self._print_pdf,
-            style="Neutral.TButton",
-            width=10,
-        ).pack(side="left")
-
-    # ======================================================
-    # ZONE 3: SUMMARY PANEL
-    # ======================================================
-
-    def _build_summary(self):
-        """Summary Panel с итогами расчёта"""
-        summary = ttk.Frame(self, style="Card.TFrame", padding=12)
-        summary.grid(row=2, column=0, sticky="ew", padx=10, pady=(5, 10))
-
-        ttk.Label(
-            summary, text="📊 Payroll Summary", font=("Segoe UI", 11, "bold")
-        ).pack(side="left", padx=(0, 20))
-
-        # Total Hours
-        ttk.Label(summary, text="Total Hours:", font=("Segoe UI", 9)).pack(
-            side="left", padx=(0, 5)
-        )
-        ttk.Label(
-            summary,
-            textvariable=self.total_hours_var,
-            font=("Segoe UI", 10, "bold"),
-            foreground="#2563eb",
-        ).pack(side="left", padx=(0, 20))
-
-        # Gross
-        ttk.Label(summary, text="Gross:", font=("Segoe UI", 9)).pack(
-            side="left", padx=(0, 5)
-        )
-        ttk.Label(
-            summary,
-            textvariable=self.gross_var,
-            font=("Segoe UI", 10, "bold"),
-            foreground="#16a34a",
-        ).pack(side="left", padx=(0, 20))
-
-        # Deductions
-        ttk.Label(summary, text="Deductions:", font=("Segoe UI", 9)).pack(
-            side="left", padx=(0, 5)
-        )
-        ttk.Label(
-            summary,
-            textvariable=self.deductions_var,
-            font=("Segoe UI", 10, "bold"),
-            foreground="#dc2626",
-        ).pack(side="left", padx=(0, 20))
-
-        # Net
-        ttk.Label(summary, text="NET SALARY:", font=("Segoe UI", 10, "bold")).pack(
-            side="left", padx=(0, 5)
-        )
-        ttk.Label(
-            summary,
-            textvariable=self.net_var,
-            font=("Segoe UI", 12, "bold"),
-            foreground="#2563eb",
-        ).pack(side="left")
-
-    # ======================================================
-    # DATA
-    # ======================================================
 
     def _load_employees(self):
         """Загрузка списка сотрудников в combobox"""
@@ -381,8 +244,11 @@ class PayrollTab(ttk.Frame):
             self.days_data.clear()
             self._context = None
             self._dirty = False
+            self._payroll_dirty = False
+            self._manual_days.clear()
             self._update_total_hours()
         self._auto_recalculate()
+        self._update_save_status()
 
     def _employee_changed(self, event=None):
         selected = self.employee_map.get(self.employee_cb.get())
@@ -391,12 +257,13 @@ class PayrollTab(ttk.Frame):
                 self.employee_cb.set(next((label for label,e in self.employee_map.items() if e['id']==self._context[0]),''))
             messagebox.showwarning('Hours editor','Finish editing hours with Enter before switching employee')
             return
-        if self._dirty and not messagebox.askyesno('Unsaved hours', 'Discard unsaved hours and switch employee?'):
+        if self.has_unsaved_changes() and not messagebox.askyesno('Unsaved changes', 'Discard unsaved hours and payroll settings and switch employee?'):
             if self._context:
                 label = next((label for label,e in self.employee_map.items() if e['id']==self._context[0]),'')
                 self.employee_cb.set(label)
             return
         self._dirty = False
+        self._payroll_dirty = False
         self.days_data.clear()
         self.tree.delete(*self.tree.get_children())
         self._context = None
@@ -404,6 +271,7 @@ class PayrollTab(ttk.Frame):
         self.rental_var.set('0.00')
         if selected is not None:
             self._generate_period()
+        self._update_save_status()
     
     def refresh_employees(self):
         """Публичный метод для обновления списка сотрудников извне"""
@@ -427,7 +295,7 @@ class PayrollTab(ttk.Frame):
         if start > end or (end-start).days > 365:
             messagebox.showerror('Period', 'Select a period of 1 to 366 days with From before To')
             return
-        if self._dirty and not messagebox.askyesno('Unsaved hours', 'Discard unsaved hours and load this period?'):
+        if self.has_unsaved_changes() and not messagebox.askyesno('Load period', 'Load saved hours and discard unsaved daily edits? Payroll settings will be kept.'):
             return
         stored = {r['work_date']:r['hours'] for r in self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())}
         self._display_period(start, end, selected, stored, dirty=not bool(stored))
@@ -458,6 +326,8 @@ class PayrollTab(ttk.Frame):
         self.days_data.clear()
         self._context = (selected['id'],start.isoformat(),end.isoformat())
         self._dirty = dirty
+        self._saved_kind = 'loaded'
+        self._manual_days.clear()
 
         # Configure zebra tags
         self.tree.tag_configure("odd", background="#f9f9f9")
@@ -474,7 +344,7 @@ class PayrollTab(ttk.Frame):
             self.days_data[key] = hours
 
             # Determine tag
-            if is_weekend:
+            if d.weekday()==6:
                 tag = "weekend"
             else:
                 tag = "odd" if row_index % 2 == 0 else "even"
@@ -487,6 +357,7 @@ class PayrollTab(ttk.Frame):
                     d.strftime("%d-%m-%Y"),
                     d.strftime("%A"),
                     f"{hours:g}",
+                    'Sunday' if d.weekday()==6 else '',
                 ),
                 tags=(tag,),
             )
@@ -496,12 +367,17 @@ class PayrollTab(ttk.Frame):
 
         self._update_total_hours()
         self._auto_recalculate()
+        self._update_save_status()
 
     # ======================================================
     # HOURS EDITING
     # ======================================================
 
     def _start_edit_hours(self, event):
+        if self._editor is not None:
+            self._save_hours(self._editing_row)
+            if self._editor is not None:
+                return
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
             return
@@ -522,8 +398,10 @@ class PayrollTab(ttk.Frame):
         value = self.days_data.get(row_id, 0.0)
 
         self._editor = tk.Spinbox(
-            self.tree, from_=0, to=24, increment=HOUR_STEP, justify="center"
+            self.tree, from_=0, to=24, increment=HOUR_STEP, justify="right",
+            highlightthickness=2, highlightbackground='#2563eb', highlightcolor='#2563eb'
         )
+        self._editing_row = row_id
         self._editor.delete(0, "end")
         self._editor.insert(0, f"{value:g}")
         self._editor.place(x=x, y=y, width=w, height=h)
@@ -531,6 +409,15 @@ class PayrollTab(ttk.Frame):
 
         self._editor.bind("<Return>", lambda e: self._save_hours(row_id))
         self._editor.bind("<FocusOut>", lambda e: self._save_hours(row_id))
+        self._editor.bind('<Escape>', self._cancel_hours_edit)
+
+    def _cancel_hours_edit(self, event=None):
+        editor,self._editor = self._editor,None
+        self._editing_row = None
+        if editor is not None:
+            editor.destroy()
+        self.tree.focus_set()
+        return 'break'
 
     def _save_hours(self, row_id):
         if not self._editor:
@@ -545,18 +432,25 @@ class PayrollTab(ttk.Frame):
             self._editor.focus()
             return
 
+        changed = self.days_data[row_id] != val
         self.days_data[row_id] = val
-        self._dirty = True
+        if changed:
+            self._dirty = True
+            self._manual_days.add(row_id)
 
         values = list(self.tree.item(row_id, "values"))
         values[2] = f"{val:g}"
+        if row_id in self._manual_days:
+            values[3] = 'Manual edit'
         self.tree.item(row_id, values=values)
 
         editor,self._editor = self._editor,None
+        self._editing_row = None
         editor.destroy()
 
         self._update_total_hours()
         self._auto_recalculate()
+        self._update_save_status()
 
     def clear_selection_on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
@@ -578,6 +472,35 @@ class PayrollTab(ttk.Frame):
         self.total_hours_var.set(display)
         self.total_label.config(text=f"Total: {display} hours")
 
+    def has_unsaved_changes(self):
+        return self._dirty or self._payroll_dirty
+
+    def _parameters_changed(self, *args):
+        if self.days_data:
+            self._payroll_dirty = True
+        self._auto_recalculate()
+        self._update_save_status()
+
+    def _update_save_status(self):
+        selected = self.employee_map.get(self.employee_cb.get())
+        if not self.days_data or selected is None:
+            text = 'Load a period to begin'
+        else:
+            try:
+                context = (selected['id'],self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat())
+            except (ValueError,tk.TclError):
+                context = None
+            if context != self._context:
+                text = 'Period changed: load or distribute'
+            elif not self._dirty and self._payroll_dirty and self._saved_kind=='draft':
+                text = 'Hours saved · payroll settings pending'
+            elif self.has_unsaved_changes():
+                text = 'Unsaved changes'
+            else:
+                text = {'loaded':'Hours loaded · draft','draft':'Hours saved · draft','payroll':'Payroll saved'}[self._saved_kind]
+        self.save_status_var.set(text)
+        self.save_status_label.configure(foreground='#986119' if self.has_unsaved_changes() else '#526276')
+
     def _auto_recalculate(self):
         """Автоматический пересчёт Net при изменении параметров"""
         if not self.days_data:
@@ -593,6 +516,7 @@ class PayrollTab(ttk.Frame):
         emp_data = self.employee_map.get(name)
         if emp_data is None:
             return
+        self.custom_rate_label.configure(text=f'Employee rate ({emp_data["rate"]:.2f} €/h)')
         emp = Employee(
             id=emp_data["id"],
             name=emp_data["name"],
@@ -655,7 +579,7 @@ class PayrollTab(ttk.Frame):
         """Печать PDF"""
         try:
             self._call_pdf(action="print")
-            messagebox.showinfo("PDF Print", "PDF sent to printer")
+            messagebox.showinfo("PDF Print", "PDF sent to printer. Changes have not been saved by printing.")
         except Exception as e:
             messagebox.showerror("PDF Print", str(e))
 
@@ -694,10 +618,13 @@ class PayrollTab(ttk.Frame):
             action=action,
             employee_id=emp['id'],
         )
-        if action != 'preview':
+        if action == 'save':
             self.db.save_payroll(emp['id'], self.days_data, self.rate_mode.get(), context[1], context[2],
                                  utilities=str(utilities),rental=str(rental),pdf_path=pdf_path)
             self._dirty = False
+            self._payroll_dirty = False
+            self._saved_kind = 'payroll'
+            self._update_save_status()
         return pdf_path
 
     def _save_draft(self):
@@ -708,6 +635,8 @@ class PayrollTab(ttk.Frame):
                 raise ValueError('Generate this period and finish editing before saving hours')
             self._save_hours_to_database(emp['id'])
             self._dirty = False
+            self._saved_kind = 'draft'
+            self._update_save_status()
             messagebox.showinfo('Saved', 'Draft hours saved. Save the PDF to record the final payroll and deductions.')
         except Exception as exc:
             messagebox.showerror('Save hours',str(exc))

@@ -1,4 +1,24 @@
-# PayrollSystem 1.9.5 — usage
+# PayrollSystem 1.10.0 — usage
+
+## Payroll screen
+
+Payroll opens first. Select an employee and dates, then Load period to load saved hours
+or the existing default schedule. Distribute Mon-Sat can create a period directly.
+Hours stay on the left; rate, deductions, Net pay and saving actions are on the right.
+
+Double-click an Hours cell to edit. Enter or leaving the cell confirms a valid value;
+Esc cancels the current input. Changed rows display Manual edit until you reload or
+redistribute the period. These markers are temporary UI hints, not a persistent audit log.
+Sundays are highlighted; hours can still be manually entered on any date.
+
+Save hours writes draft daily hours. It does not store deductions or issue a payroll;
+changed payroll settings remain pending. Save payroll + PDF records the payroll and its PDF.
+Preview PDF and Print do not save hours or create payroll history entries.
+Watch the status beside Working hours for unsaved changes, saved drafts or saved payrolls.
+Changing dates requires Load period or Distribute Mon-Sat before saving.
+
+At larger text scales or smaller window heights, scroll the right panel to reach all actions.
+Keyboard focus automatically brings its controls into view.
 
 ## Distribute total hours
 
