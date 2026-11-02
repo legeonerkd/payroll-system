@@ -35,6 +35,19 @@ def setup_styles(root):
     style = ttk.Style(root)
     style.theme_use("default")
 
+    # Payroll screen uses compact controls so the side summary stays visible.
+    style.configure('PayrollCard.TFrame',background=COLORS['card'])
+    style.configure('PayrollHeading.TLabel',background=COLORS['card'],font=('Segoe UI',10,'bold'))
+    style.configure('PayrollBody.TLabel',background=COLORS['card'],font=('Segoe UI',9))
+    style.configure('PayrollHint.TLabel',background=COLORS['card'],foreground='#526276',font=('Segoe UI',9))
+    style.configure('PayrollStatus.TLabel',background=COLORS['card'],font=('Segoe UI',9))
+    style.configure('PayrollNet.TLabel',background=COLORS['card'],font=('Segoe UI',19,'bold'),foreground=COLORS['accent'])
+    style.configure('PayrollSecondary.TButton',background=COLORS['card'],foreground=COLORS['text'],font=('Segoe UI',9),padding=(9,5))
+    style.map('PayrollSecondary.TButton',background=[('active','#e9eef6')],foreground=[('disabled',COLORS['disabled_text'])])
+    style.configure('Payroll.TRadiobutton',background=COLORS['card'],font=('Segoe UI',9))
+    style.configure('Payroll.Treeview',font=('Segoe UI',10),rowheight=30)
+    style.configure('Payroll.Treeview.Heading',font=('Segoe UI',9,'bold'),padding=(6,5))
+
     # ---------- Base ----------
     style.configure(
         ".",

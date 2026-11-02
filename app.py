@@ -52,6 +52,7 @@ class PayrollApp(tk.Tk):
 
         self.payroll_tab = PayrollTab(notebook, self.db)
         notebook.add(self.payroll_tab, text="Payroll")
+        notebook.select(self.payroll_tab)
 
         # ---------- MENU ----------
         menubar = tk.Menu(self)
@@ -130,7 +131,7 @@ class PayrollApp(tk.Tk):
         if any(isinstance(w,ExcelImportWindow) and w._running for w in self.winfo_children()):
             messagebox.showinfo('Import running','Wait for the import to finish before closing the application.')
             return
-        if (self.payroll_tab._dirty or self.payroll_tab._editor is not None) and not messagebox.askyesno('Unsaved hours','Close and discard unsaved hours?'):
+        if (self.payroll_tab.has_unsaved_changes() or self.payroll_tab._editor is not None) and not messagebox.askyesno('Unsaved changes','Close and discard unsaved hours and payroll settings?'):
             return
         self.db.close()
         self.destroy()
