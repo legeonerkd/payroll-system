@@ -472,6 +472,38 @@ def test_close_cancel_keeps_unsaved_employee_details(ui,monkeypatch):
     editor.destroy()
 
 
+def test_payroll_bank_info_switches_refreshes_and_masks(ui,monkeypatch):
+    tab,db,first,second=ui
+    db.update_employee_bank(first,True,'Example Bank','SECRET-1234','SECRET')
+    db.update_employee_bank(second,False,None,None,None)
+    tab.refresh_employees();select(tab,first);tab._employee_changed()
+    assert tab.bank_account_var.get()=='Bank account: Yes'
+    assert '1234' in tab.bank_detail_var.get() and 'SECRET' not in tab.bank_detail_var.get()
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a,**k:True)
+    select(tab,second);tab._employee_changed()
+    assert tab.bank_account_var.get()=='Bank account: No'
+    assert '1234' not in tab.bank_detail_var.get()
+    e=db.get_employee(second)
+    db.update_employee(second,e['name'],e['rate'],bank_account_state='unknown')
+    tab.refresh_employees()
+    assert tab.bank_account_var.get()=='Bank account: Not specified'
+
+
+def test_editor_account_choice_saves_and_no_account_pdf_omits_details(ui,monkeypatch):
+    from ui.employees_tab import EmployeesTab
+    tab,db,first,_=ui;editor=EmployeesTab(tab.winfo_toplevel(),db)
+    editor.tree.selection_set(str(first));editor._on_select(None)
+    editor.bank_var.set('Example Bank');editor.iban_var.set('TEST-1234');editor.bank_account_var.set('No')
+    editor._update()
+    assert db.get_employee(first)['bank_account_state']=='no' and db.get_employee(first)['iban']=='TEST-1234'
+    tab.refresh_employees();select(tab,first);tab._generate_period()
+    arguments=[]
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:arguments.append(kw) or 'synthetic.pdf')
+    tab._call_pdf('preview')
+    assert arguments[0]['bank_name'] is None and arguments[0]['iban'] is None
+    editor.destroy()
+
+
 def test_switch_loads_own_hours_and_recalculates(ui):
     tab,db,first,second=ui
     db.save_hours(first,'2026-05-01',8);db.save_hours(second,'2026-05-01',6)

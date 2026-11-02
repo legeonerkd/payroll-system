@@ -10,10 +10,11 @@ import sqlite3
 from config import DATABASE_PATH
 from core.backup import backup_db
 from core.models import Employee
+from core.banking import validate_account_state,payment_details
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class PayrollConflictError(ValueError):
@@ -80,6 +81,9 @@ class Database:
                 self.conn.execute("UPDATE employees SET bank=bank_name WHERE (bank IS NULL OR bank='') AND bank_name IS NOT NULL")
             if 'archived' not in columns:
                 self.conn.execute('ALTER TABLE employees ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+            if 'bank_account_state' not in self._columns('employees'):
+                self.conn.execute("ALTER TABLE employees ADD COLUMN bank_account_state TEXT NOT NULL DEFAULT 'unknown' CHECK(bank_account_state IN ('unknown','yes','no'))")
+                self.conn.execute("UPDATE employees SET bank_account_state='yes' WHERE TRIM(COALESCE(iban,''))<>''")
             self.conn.execute('''CREATE TABLE IF NOT EXISTS work_hours (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 employee_id INTEGER NOT NULL REFERENCES employees(id),
@@ -167,21 +171,24 @@ class Database:
             raise ValueError('Employee not found')
         return row
 
-    def add_employee(self, name, rate, bank=None, iban=None, bic=None):
+    def add_employee(self, name, rate, bank=None, iban=None, bic=None,*,bank_account_state=None):
         name, rate = employee_values(name, rate)
+        state=validate_account_state(bank_account_state if bank_account_state is not None else ('yes' if str(iban or '').strip() else 'unknown'))
         with self.transaction():
-            cur = self.conn.execute('INSERT INTO employees(name,rate,bank,iban,bic) VALUES(?,?,?,?,?)',
-                                    (name, rate, bank, iban, bic))
+            cur = self.conn.execute('INSERT INTO employees(name,rate,bank,iban,bic,bank_account_state) VALUES(?,?,?,?,?,?)',
+                                    (name, rate, bank, iban, bic,state))
             return cur.lastrowid
 
-    def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None,*,expected=None):
+    def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None,*,expected=None,bank_account_state=None):
         name, rate = employee_values(name, rate)
         with self.transaction():
             current=self.get_employee(emp_id)
-            if expected is not None and (current['archived'] or any(current[key]!=expected.get(key) for key in ('name','rate','bank','iban','bic'))):
+            if expected is not None and (current['archived'] or any(current[key]!=expected.get(key) for key in ('name','rate','bank','iban','bic','bank_account_state'))):
                 raise ValueError('Employee details changed after this form was loaded. Clear and select the employee again before updating.')
-            self.conn.execute('UPDATE employees SET name=?,rate=?,bank=?,iban=?,bic=? WHERE id=?',
-                              (name, rate, bank, iban, bic, emp_id))
+            state=current['bank_account_state'] if bank_account_state is None else validate_account_state(bank_account_state)
+            if bank_account_state is None and state=='unknown' and not str(current['iban'] or '').strip() and str(iban or '').strip():state='yes'
+            self.conn.execute('UPDATE employees SET name=?,rate=?,bank=?,iban=?,bic=?,bank_account_state=? WHERE id=?',
+                              (name, rate, bank, iban, bic,state,emp_id))
 
     def delete_employee(self, emp_id):
         # Keep financial and timesheet history intact.
@@ -199,7 +206,7 @@ class Database:
     def update_employee_bank(self, emp_id, has_bank, bank_name, iban, bic):
         e = self.get_employee(emp_id)
         self.update_employee(emp_id, e['name'], e['rate'], bank_name if has_bank else None,
-                             iban if has_bank else None, bic if has_bank else None)
+                             iban if has_bank else None, bic if has_bank else None,bank_account_state='yes' if has_bank else 'no')
 
     def load_hours(self, emp_id, start, end):
         iso_date(start); iso_date(end)
@@ -277,8 +284,9 @@ class Database:
         if e['archived']: raise ValueError('Employee is archived')
         rows,summary=calculate_payroll(Employee.from_row(e),values,rate_mode,utilities=utilities,housing=rental)
         rate=rows[0].rate
+        details=payment_details(e)
         snapshot=dict(employee_id=emp_id,name=e['name'],rate=rate,rate_mode=rate_mode,
-            period_from=start,period_to=end,bank=e['bank'],iban=e['iban'],bic=e['bic'],
+            period_from=start,period_to=end,**details,
             utilities=summary.utilities_deduction,rental=summary.housing_deduction,
             total_hours=summary.total_hours,gross_amount=summary.gross_amount,net_amount=summary.net_amount)
         key=hashlib.sha256(json.dumps([snapshot,sorted(values.items())],sort_keys=True).encode()).hexdigest()

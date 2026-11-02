@@ -9,7 +9,7 @@ from core.backup import backup_db,verify_database,latest_backup,remember_backup_
 class BackupManager(tk.Toplevel):
     def __init__(self,parent,db_path,on_restore):
         super().__init__(parent)
-        self.title('Backups and restore');self.geometry('720x340');self.minsize(720,340)
+        self.title('Backups and restore');self.geometry('760x420');self.minsize(760,420)
         self.db_path=Path(db_path);self.on_restore=on_restore
         self.status=tk.StringVar();self.location=tk.StringVar()
         box=ttk.Frame(self,padding=18);box.pack(fill='both',expand=True)

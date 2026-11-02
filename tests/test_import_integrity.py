@@ -77,6 +77,20 @@ def test_import_cannot_silently_issue_a_changed_statement_for_same_period(monkey
     db.close()
 
 
+@pytest.mark.parametrize('save_to_db',[False,True])
+def test_import_respects_declared_no_account_and_preserves_card_details(monkeypatch,tmp_path,save_to_db):
+    from services import excel_import_service as service
+    db=Database(':memory:')
+    eid=db.add_employee('Synthetic',12,'Example Bank','TEST-IBAN','TEST-BIC',bank_account_state='no')
+    captured=[]
+    monkeypatch.setattr(service,'generate_payroll_pdf',lambda *a,**k:captured.append(a) or str(tmp_path/'synthetic.pdf'))
+    process_import(db,[employee(employee_id=eid)],options(create_pdf=True,save_to_db=save_to_db))
+    assert captured[0][8:11]==(None,None,None)
+    assert db.get_employee(eid)['bank_account_state']=='no' and db.get_employee(eid)['iban']=='TEST-IBAN'
+    if save_to_db:assert db.get_payrolls()[0]['iban'] is None
+    db.close()
+
+
 def test_namesakes_require_id_and_blank_banks_are_preserved():
     db=Database(':memory:')
     first=db.add_employee('Synthetic',12,'Bank','IBAN','BIC')
