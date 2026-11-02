@@ -1,4 +1,4 @@
-# PayrollSystem 1.13.1 — usage
+# PayrollSystem 1.13.2 — usage
 
 ## Payroll screen
 
@@ -44,12 +44,20 @@ Exclude / include marks a date as non-working and sets its hours to zero. Unlock
 excluding it; include it before locking it or entering non-zero hours. Including a date does
 not restore its previous hours; edit it or distribute again.
 
-Set Daily range Min and Max (whole numbers from 0 to 24), for example 8 and 12.
+Set Preferred min and Preferred max (whole numbers from 0 to 14), for example 8 and 12.
 The range applies only to unlocked, non-excluded Monday-Saturday dates. Locked values may
 fall outside that range, including manually entered hours on Sunday.
-The app subtracts locked hours and distributes the remaining whole hours within Min–Max,
-with modest variation where feasible. Some days may have equal hours. Unlocked Sundays and
-excluded dates stay at zero. No day may exceed 24 hours. Repeating can give a different schedule.
+The app subtracts locked hours and distributes the remaining whole hours within the preferred
+range when possible. If the total is lower or higher, it automatically relaxes the relevant
+bound to match the total exactly. For example, 158 hours over October 2026 distributes
+successfully even with a preferred range of 8–12. Preferences do not block a feasible total.
+The allocation has modest variation where feasible. Some days may have equal hours. Unlocked Sundays and
+excluded dates stay at zero. Automatic distribution never exceeds 14 hours per day,
+even when an older saved preference was higher. If a locked date already exceeds 14,
+correct it manually before distributing; it will not be reduced silently.
+If the total exceeds the available capacity, extend the period or unlock more dates.
+Existing saved hours and historical statements are not changed by this limit.
+Repeating can give a different schedule.
 
 If locked hours are fractional, the total may also be fractional, but the remainder must
 be a whole number. For example, lock 8.5 hours and enter a total of 48.5 to distribute 40.
