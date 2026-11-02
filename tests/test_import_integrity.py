@@ -65,6 +65,18 @@ def test_import_cannot_overwrite_excluded_date_and_rolls_back_other_employees():
     db.close()
 
 
+def test_import_cannot_silently_issue_a_changed_statement_for_same_period(monkeypatch,tmp_path):
+    from services import excel_import_service as service
+    db=Database(':memory:');eid=db.add_employee('Synthetic',12)
+    original=db.save_payroll(eid,{'2026-05-01':8},'custom','2026-05-01','2026-05-01')
+    monkeypatch.setattr(service,'generate_payroll_pdf',lambda *a,**k:str(tmp_path/'synthetic.pdf'))
+    with pytest.raises(ValueError,match='already exists'):
+        process_import(db,[employee(employee_id=eid)],options(create_pdf=True))
+    assert len(db.get_payrolls())==1 and db.get_payrolls()[0]['id']==original
+    assert db.get_all_hours()[0]['hours']==8
+    db.close()
+
+
 def test_namesakes_require_id_and_blank_banks_are_preserved():
     db=Database(':memory:')
     first=db.add_employee('Synthetic',12,'Bank','IBAN','BIC')
