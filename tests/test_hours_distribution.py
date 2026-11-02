@@ -51,3 +51,45 @@ def test_invalid_total_rejected(total):
 def test_invalid_period_rejected(start,end):
     with pytest.raises(ValueError):
         distribute_hours(start,end,'8')
+
+
+@pytest.mark.parametrize('total',range(37,58))
+def test_bounded_distribution_preserves_locked_and_excluded(total):
+    if total>53:
+        with pytest.raises(ValueError,match='from 37 to 53'):
+            distribute_hours(date(2026,5,4),date(2026,5,10),total,minimum=8,maximum=12,
+                locked={'2026-05-04':5},excluded={'2026-05-05'})
+        return
+    result=distribute_hours(date(2026,5,4),date(2026,5,10),total,minimum=8,maximum=12,
+        locked={'2026-05-04':5},excluded={'2026-05-05'})
+    assert sum(result.values())==total
+    assert result['2026-05-04']==5 and result['2026-05-05']==0 and result['2026-05-10']==0
+    assert all(isinstance(result[d],int) and 8<=result[d]<=12 for d in ('2026-05-06','2026-05-07','2026-05-08','2026-05-09'))
+
+
+def test_fractional_locked_sunday_and_matching_fractional_total():
+    result=distribute_hours(date(2026,5,4),date(2026,5,10),'60.5',minimum=8,maximum=12,
+        locked={'2026-05-10':.5})
+    assert result['2026-05-10']==.5 and sum(result.values())==60.5
+    with pytest.raises(ValueError,match='minus locked'):
+        distribute_hours(date(2026,5,4),date(2026,5,10),60,locked={'2026-05-10':.5})
+
+
+def test_all_dates_fixed_and_infeasible_cases():
+    start,end=date(2026,5,1),date(2026,5,3)
+    assert distribute_hours(start,end,8.5,locked={'2026-05-01':8.5},excluded={'2026-05-02'})=={
+        '2026-05-01':8.5,'2026-05-02':0,'2026-05-03':0}
+    for total in (7,9.5):
+        with pytest.raises(ValueError):
+            distribute_hours(start,end,total,locked={'2026-05-01':8.5},excluded={'2026-05-02'})
+
+
+@pytest.mark.parametrize('options',[
+    {'minimum':12,'maximum':8},{'minimum':8.5},{'maximum':25},
+    {'locked':{'2026-05-01':25}}, {'locked':{'2026-04-30':8}},
+    {'excluded':{'2026-06-01'}}, {'locked':{'2026-05-01':8},'excluded':{'2026-05-01'}},
+    {'minimum':12,'maximum':12},
+])
+def test_invalid_constraints_rejected(options):
+    with pytest.raises(ValueError):
+        distribute_hours(date(2026,5,1),date(2026,5,2),16,**options)

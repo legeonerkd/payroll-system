@@ -1,4 +1,4 @@
-# PayrollSystem 1.10.0 — usage
+# PayrollSystem 1.11.0 — usage
 
 ## Payroll screen
 
@@ -22,21 +22,36 @@ Keyboard focus automatically brings its controls into view.
 
 ## Distribute total hours
 
-Select an employee and the From/To dates, enter a whole number of Total hours,
-then click Distribute Mon-Sat. Generate Period is not required first.
-Whole hours are allocated across Monday through Saturday, including both period boundaries,
-with modest random variation (up to two hours below the rounded-down average and two above).
-The total stays exact. Sundays are zero. Repeating distribution can give a different schedule.
-Equal hours on some days are allowed; variation is created whenever mathematically possible.
-All-zero, fully occupied 24-hour days and a single working day cannot vary.
-No day may exceed 24 hours. A period consisting only of Sunday cannot be distributed.
+Select an employee and the From/To dates, enter Total hours (incl. locked), then click
+Distribute Mon-Sat. Load period is not required first. The total covers the entire period.
 
-Double-click any Hours cell to adjust it manually, then press Enter.
-Manual changes update the total and salary immediately; they do not redistribute other days.
-Manual adjustments may still include fractional hours.
-Save hours (draft) stores the edited hours; Save PDF records the final payroll.
-Distributing alone does not change saved data. Repeating distribution replaces daily edits
-after confirmation. Generate Period loads saved hours or the existing default schedule.
+Select one or more table rows (Ctrl/Shift for multiple dates), then Lock / unlock to preserve
+their current hours during distribution. Locked hours can still be edited manually.
+Exclude / include marks a date as non-working and sets its hours to zero. Unlock a date before
+excluding it; include it before locking it or entering non-zero hours. Including a date does
+not restore its previous hours; edit it or distribute again.
+
+Set Daily range Min and Max (whole numbers from 0 to 24), for example 8 and 12.
+The range applies only to unlocked, non-excluded Monday-Saturday dates. Locked values may
+fall outside that range, including manually entered hours on Sunday.
+The app subtracts locked hours and distributes the remaining whole hours within Min–Max,
+with modest variation where feasible. Some days may have equal hours. Unlocked Sundays and
+excluded dates stay at zero. No day may exceed 24 hours. Repeating can give a different schedule.
+
+If locked hours are fractional, the total may also be fractional, but the remainder must
+be a whole number. For example, lock 8.5 hours and enter a total of 48.5 to distribute 40.
+Impossible constraints show an error without modifying the table or database.
+
+Double-click Hours to edit, then press Enter. Manual edits may include fractional hours and
+do not redistribute other days. Save hours or Save payroll + PDF stores day rules and the
+daily range together with hours. Locks/exclusions belong to the employee and dates; the range
+belongs to the employee. Distributing alone does not write anything to the database.
+
+Unsaved rules are discarded when loading a period or switching employees after confirmation.
+The daily range and payroll settings are kept when loading a period for the same employee.
+Repeating distribution replaces unlocked daily edits after confirmation.
+Imports cannot silently enter non-zero hours on excluded dates: include and save them first.
+Locks protect redistribution; they do not prevent explicit manual edits or imports.
 
 ## Employees
 

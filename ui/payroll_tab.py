@@ -27,6 +27,12 @@ class PayrollTab(ttk.Frame):
         self.utilities_var = tk.StringVar(value="0.00")
         self.rental_var = tk.StringVar(value="0.00")
         self.distribution_hours_var = tk.StringVar(value="")
+        self.distribution_min_var = tk.StringVar(value='0')
+        self.distribution_max_var = tk.StringVar(value='24')
+        self._locked_days = set()
+        self._excluded_days = set()
+        self._distribution_dirty=False
+        self._loading_distribution_settings=False
 
         # Summary variables
         self.total_hours_var = tk.StringVar(value="0.0")
@@ -50,6 +56,8 @@ class PayrollTab(ttk.Frame):
         self.rate_mode.trace_add("write", self._parameters_changed)
         self.utilities_var.trace_add("write", self._parameters_changed)
         self.rental_var.trace_add("write", self._parameters_changed)
+        self.distribution_min_var.trace_add('write',self._distribution_settings_changed)
+        self.distribution_max_var.trace_add('write',self._distribution_settings_changed)
 
     # ======================================================
     # UI LAYOUT - 3 ZONES (Header / Content / Summary)
@@ -99,10 +107,16 @@ class PayrollTab(ttk.Frame):
         self.save_status_label.pack(side='right',padx=(8,0))
         allocation=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         allocation.grid(row=1,column=0,sticky='ew')
-        ttk.Label(allocation,text='Total to distribute',style='PayrollHint.TLabel').grid(row=0,column=0,sticky='w')
+        ttk.Label(allocation,text='Total hours (incl. locked)',style='PayrollHint.TLabel').grid(row=0,column=0,sticky='w')
         ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,10))
         ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton').grid(row=1,column=1,pady=(4,0))
-        ttk.Label(table_frame,text='Whole hours with variation. Sundays stay at 0.',style='PayrollHint.TLabel').grid(row=2,column=0,sticky='w',pady=(7,2))
+        limits=ttk.Frame(allocation,style='PayrollCard.TFrame')
+        limits.grid(row=2,column=0,columnspan=2,sticky='w',pady=(8,0))
+        ttk.Label(limits,text='Daily range',style='PayrollHint.TLabel').pack(side='left',padx=(0,8))
+        for text,variable in [('Min',self.distribution_min_var),('Max',self.distribution_max_var)]:
+            ttk.Label(limits,text=text,style='PayrollHint.TLabel').pack(side='left',padx=(0,4))
+            ttk.Spinbox(limits,from_=0,to=24,textvariable=variable,width=4).pack(side='left',padx=(0,10))
+        ttk.Label(table_frame,text='Locked dates keep their hours. Excluded dates stay at 0.',style='PayrollHint.TLabel').grid(row=2,column=0,sticky='w',pady=(7,2))
         ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
         container=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         container.grid(row=4,column=0,sticky='nsew')
@@ -120,6 +134,10 @@ class PayrollTab(ttk.Frame):
         self.tree.bind('<Button-1>',self.clear_selection_on_click,add='+')
         self.total_label=ttk.Label(table_frame,text='Total: 0 hours',style='PayrollHeading.TLabel')
         self.total_label.grid(row=5,column=0,sticky='e',pady=(10,0))
+        actions=ttk.Frame(table_frame,style='PayrollCard.TFrame')
+        actions.grid(row=6,column=0,sticky='ew',pady=(8,0))
+        ttk.Button(actions,text='Lock / unlock',command=lambda:self._toggle_day_rule('locked'),style='PayrollSecondary.TButton').pack(side='left',padx=(0,8))
+        ttk.Button(actions,text='Exclude / include',command=lambda:self._toggle_day_rule('excluded'),style='PayrollSecondary.TButton').pack(side='left')
 
     def _build_right_panel(self,parent):
         shell=ttk.Frame(parent,style='Card.TFrame')
@@ -245,10 +263,14 @@ class PayrollTab(ttk.Frame):
             self._context = None
             self._dirty = False
             self._payroll_dirty = False
+            self._distribution_dirty=False
             self._manual_days.clear()
             self._update_total_hours()
         self._auto_recalculate()
         self._update_save_status()
+        if self._context is None and not self._distribution_dirty:
+            current=self.employee_map.get(self.employee_cb.get())
+            if current is not None: self._load_distribution_settings(current['id'])
 
     def _employee_changed(self, event=None):
         selected = self.employee_map.get(self.employee_cb.get())
@@ -264,12 +286,14 @@ class PayrollTab(ttk.Frame):
             return
         self._dirty = False
         self._payroll_dirty = False
+        self._distribution_dirty=False
         self.days_data.clear()
         self.tree.delete(*self.tree.get_children())
         self._context = None
         self.utilities_var.set('0.00')
         self.rental_var.set('0.00')
         if selected is not None:
+            self._load_distribution_settings(selected['id'])
             self._generate_period()
         self._update_save_status()
     
@@ -295,10 +319,11 @@ class PayrollTab(ttk.Frame):
         if start > end or (end-start).days > 365:
             messagebox.showerror('Period', 'Select a period of 1 to 366 days with From before To')
             return
-        if self.has_unsaved_changes() and not messagebox.askyesno('Load period', 'Load saved hours and discard unsaved daily edits? Payroll settings will be kept.'):
+        if self.days_data and self.has_unsaved_changes() and not messagebox.askyesno('Load period', 'Load saved hours and discard unsaved daily edits and day rules? Payroll settings and daily range will be kept.'):
             return
         stored = {r['work_date']:r['hours'] for r in self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())}
-        self._display_period(start, end, selected, stored, dirty=not bool(stored))
+        rules=self.db.load_day_rules(selected['id'],start.isoformat(),end.isoformat())
+        self._display_period(start, end, selected, stored, dirty=not bool(stored),rules=rules)
 
     def _distribute_hours(self):
         if self._editor is not None:
@@ -310,24 +335,38 @@ class PayrollTab(ttk.Frame):
             return
         try:
             start, end = self.from_entry.get_date(), self.to_entry.get_date()
-            values = distribute_hours(start, end, self.distribution_hours_var.get())
             stored = self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())
+            context=(selected['id'],start.isoformat(),end.isoformat())
+            if self._context==context:
+                rules=self._day_rules()
+                previous=self.days_data
+            else:
+                rules=self.db.load_day_rules(selected['id'],context[1],context[2])
+                previous={r['work_date']:r['hours'] for r in stored}
+            lo,hi=self._distribution_settings()
+            locked={d:previous[d] for d,r in rules.items() if r['locked']}
+            excluded={d for d,r in rules.items() if r['excluded']}
+            values = distribute_hours(start,end,self.distribution_hours_var.get(),minimum=lo,maximum=hi,locked=locked,excluded=excluded)
         except ValueError as exc:
             messagebox.showerror('Distribute hours', str(exc))
             return
-        if (self._dirty or stored or self.days_data) and not messagebox.askyesno(
-                'Replace hours?', 'Replace the displayed hours with varied whole hours for Monday-Saturday? '
-                'Sundays will be zero. Unsaved edits will be discarded. The database changes only when you save.'):
+        question='Redistribute unlocked Monday-Saturday hours? Locked dates stay unchanged. Excluded dates and unlocked Sundays stay at zero. Other daily edits will be replaced. Save to update the database.'
+        if self._context!=context and self.has_unsaved_changes():
+            question='The selected period differs from the displayed period. Unsaved daily edits and day rules will be discarded. Saved locks for the selected period will be used. '+question
+        if (self._dirty or stored or self.days_data) and not messagebox.askyesno('Replace hours?',question):
             return
-        self._display_period(start, end, selected, values, dirty=True)
+        self._display_period(start, end, selected, values, dirty=True,rules=rules)
 
-    def _display_period(self, start, end, selected, stored, *, dirty):
+    def _display_period(self, start, end, selected, stored, *, dirty,rules=None):
         self.tree.delete(*self.tree.get_children())
         self.days_data.clear()
         self._context = (selected['id'],start.isoformat(),end.isoformat())
-        self._dirty = dirty
+        self._dirty = dirty or self._distribution_dirty
         self._saved_kind = 'loaded'
         self._manual_days.clear()
+        rules=rules or {}
+        self._locked_days={d for d,r in rules.items() if r['locked']}
+        self._excluded_days={d for d,r in rules.items() if r['excluded']}
 
         # Configure zebra tags
         self.tree.tag_configure("odd", background="#f9f9f9")
@@ -365,9 +404,71 @@ class PayrollTab(ttk.Frame):
             d += timedelta(days=1)
             row_index += 1
 
+        for key in self.days_data: self._refresh_day_label(key)
+
         self._update_total_hours()
         self._auto_recalculate()
         self._update_save_status()
+
+    def _load_distribution_settings(self,emp_id):
+        lo,hi=self.db.load_distribution_settings(emp_id)
+        self._loading_distribution_settings=True
+        try:
+            self.distribution_min_var.set(str(lo))
+            self.distribution_max_var.set(str(hi))
+        finally:
+            self._loading_distribution_settings=False
+
+    def _distribution_settings(self):
+        lo=number(self.distribution_min_var.get(),'Minimum daily hours',maximum=24)
+        hi=number(self.distribution_max_var.get(),'Maximum daily hours',maximum=24)
+        if lo!=lo.to_integral_value() or hi!=hi.to_integral_value() or lo>hi:
+            raise ValueError('Daily range must use whole numbers with 0 <= Min <= Max <= 24')
+        return int(lo),int(hi)
+
+    def _distribution_settings_changed(self,*args):
+        if self._loading_distribution_settings: return
+        self._distribution_dirty=True
+        if self.days_data: self._dirty=True
+        self._update_save_status()
+
+    def _day_rules(self):
+        return {d:{'locked':d in self._locked_days,'excluded':d in self._excluded_days}
+                for d in self.days_data if d in self._locked_days or d in self._excluded_days}
+
+    def _refresh_day_label(self,day):
+        label='Locked' if day in self._locked_days else 'Excluded' if day in self._excluded_days else 'Sunday' if datetime.fromisoformat(day).weekday()==6 else ''
+        if day in self._manual_days:
+            label='Locked · edited' if day in self._locked_days else 'Manual edit'
+        self.tree.set(day,'changes',label)
+
+    def _toggle_day_rule(self,rule):
+        selected=self.employee_map.get(self.employee_cb.get())
+        context=None if selected is None else (selected['id'],self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat())
+        if self._editor is not None or context!=self._context or not self.days_data:
+            messagebox.showwarning('Day rules','Load this period and finish editing first')
+            return
+        days=self.tree.selection()
+        if not days:
+            messagebox.showinfo('Day rules','Select one or more dates in the table first')
+            return
+        own=self._locked_days if rule=='locked' else self._excluded_days
+        other=self._excluded_days if rule=='locked' else self._locked_days
+        remove=all(d in own for d in days)
+        if not remove and any(d in other for d in days):
+            messagebox.showwarning('Day rules','Include excluded dates before locking them, or unlock dates before excluding them')
+            return
+        for day in days:
+            if remove: own.discard(day)
+            else:
+                own.add(day)
+                if rule=='excluded':
+                    self.days_data[day]=0
+                    self.tree.set(day,'hours','0')
+                    self._manual_days.discard(day)
+            self._refresh_day_label(day)
+        self._dirty=True
+        self._update_total_hours();self._auto_recalculate();self._update_save_status()
 
     # ======================================================
     # HOURS EDITING
@@ -425,6 +526,8 @@ class PayrollTab(ttk.Frame):
 
         try:
             val = float(number(self._editor.get(), 'Hours', maximum=24))
+            if row_id in self._excluded_days and val!=0:
+                raise ValueError('Include this date before entering non-zero hours')
             if val < 0:
                 val = 0.0
         except ValueError as exc:
@@ -443,6 +546,7 @@ class PayrollTab(ttk.Frame):
         if row_id in self._manual_days:
             values[3] = 'Manual edit'
         self.tree.item(row_id, values=values)
+        self._refresh_day_label(row_id)
 
         editor,self._editor = self._editor,None
         self._editing_row = None
@@ -473,7 +577,7 @@ class PayrollTab(ttk.Frame):
         self.total_label.config(text=f"Total: {display} hours")
 
     def has_unsaved_changes(self):
-        return self._dirty or self._payroll_dirty
+        return self._dirty or self._payroll_dirty or self._distribution_dirty
 
     def _parameters_changed(self, *args):
         if self.days_data:
@@ -602,6 +706,7 @@ class PayrollTab(ttk.Frame):
         rows = [(day, '', hours) for day,hours in sorted(self.days_data.items())]
         utilities = number(self.utilities_var.get() or 0, 'Utilities deduction')
         rental = number(self.rental_var.get() or 0, 'Rental deduction')
+        settings=self._distribution_settings() if action=='save' else None
 
         pdf_path = generate_payroll_pdf(
             employee_name=emp["name"],
@@ -620,9 +725,11 @@ class PayrollTab(ttk.Frame):
         )
         if action == 'save':
             self.db.save_payroll(emp['id'], self.days_data, self.rate_mode.get(), context[1], context[2],
-                                 utilities=str(utilities),rental=str(rental),pdf_path=pdf_path)
+                                 utilities=str(utilities),rental=str(rental),pdf_path=pdf_path,
+                                 day_rules=self._day_rules(),distribution_settings=settings)
             self._dirty = False
             self._payroll_dirty = False
+            self._distribution_dirty=False
             self._saved_kind = 'payroll'
             self._update_save_status()
         return pdf_path
@@ -635,6 +742,7 @@ class PayrollTab(ttk.Frame):
                 raise ValueError('Generate this period and finish editing before saving hours')
             self._save_hours_to_database(emp['id'])
             self._dirty = False
+            self._distribution_dirty=False
             self._saved_kind = 'draft'
             self._update_save_status()
             messagebox.showinfo('Saved', 'Draft hours saved. Save the PDF to record the final payroll and deductions.')
@@ -647,4 +755,4 @@ class PayrollTab(ttk.Frame):
             return
         
         # Сохраняем все отработанные часы
-        self.db.save_hours_batch(emp_id, self.days_data)
+        self.db.save_period_hours(emp_id,self.days_data,self._day_rules(),self._distribution_settings())

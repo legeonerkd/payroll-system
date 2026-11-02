@@ -53,6 +53,18 @@ def test_worker_owns_its_connection(tmp_path):
     db.close()
 
 
+def test_import_cannot_overwrite_excluded_date_and_rolls_back_other_employees():
+    db=Database(':memory:')
+    eid=db.add_employee('Excluded employee',12)
+    db.save_period_hours(eid,{'2026-05-01':0},{'2026-05-01':{'locked':False,'excluded':True}},(0,24))
+    with pytest.raises(ValueError,match='excluded'):
+        process_import(db,[employee('New employee'),employee('Excluded employee',employee_id=eid)],options())
+    assert len(db.get_employees())==1
+    assert db.get_all_hours()[0]['hours']==0
+    assert db.load_day_rules(eid,'2026-05-01','2026-05-01')['2026-05-01']['excluded']
+    db.close()
+
+
 def test_namesakes_require_id_and_blank_banks_are_preserved():
     db=Database(':memory:')
     first=db.add_employee('Synthetic',12,'Bank','IBAN','BIC')
