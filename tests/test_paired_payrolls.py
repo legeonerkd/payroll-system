@@ -195,6 +195,39 @@ def test_legacy_opposite_rates_are_not_silently_reclassified_as_an_intentional_p
     assert not db.conn.execute('SELECT * FROM payroll_pairs').fetchall()
 
 
+def test_print_pair_submits_both_saved_files_in_order(tmp_path,monkeypatch):
+    files={mode:tmp_path/f'{mode}.pdf' for mode in pairs.MODES}
+    for path in files.values():path.write_bytes(b'synthetic')
+    sent=[]
+    monkeypatch.setattr(pairs,'_print_file',lambda path:sent.append(path))
+    assert pairs.print_payroll_pair(files)==pairs.MODES
+    assert sent==[str(files[mode]) for mode in pairs.MODES]
+
+
+@pytest.mark.parametrize('failed',['fixed','custom'])
+def test_print_failure_records_partial_submission_and_preserves_pdfs(tmp_path,monkeypatch,failed):
+    files={mode:tmp_path/f'{mode}.pdf' for mode in pairs.MODES}
+    for path in files.values():path.write_bytes(b'synthetic')
+    attempts=[]
+    def printer(path):
+        attempts.append(path)
+        if Path(path).stem==failed:raise OSError('Synthetic printer failure')
+    monkeypatch.setattr(pairs,'_print_file',printer)
+    with pytest.raises(pairs.PairPrintError) as caught:pairs.print_payroll_pair(files)
+    assert caught.value.submitted==(() if failed=='fixed' else ('fixed',))
+    assert caught.value.pending==(pairs.MODES if failed=='fixed' else ('custom',))
+    assert len(attempts)==(1 if failed=='fixed' else 2)
+    assert all(path.exists() for path in files.values())
+
+
+def test_missing_second_file_does_not_submit_the_first(tmp_path,monkeypatch):
+    files={mode:tmp_path/f'{mode}.pdf' for mode in pairs.MODES}
+    files['fixed'].write_bytes(b'synthetic');sent=[]
+    monkeypatch.setattr(pairs,'_print_file',lambda path:sent.append(path))
+    with pytest.raises(pairs.PairPrintError) as caught:pairs.print_payroll_pair(files)
+    assert not sent and caught.value.pending==pairs.MODES
+
+
 @pytest.mark.parametrize('state,target',[('yes','fixed'),('no','custom'),('unknown',None)])
 def test_utilities_have_one_target_and_zero_is_valid(state,target):
     e={'bank_account_state':state}

@@ -4,9 +4,29 @@ from core.banking import payment_details
 from core.rental import rental_for_rate,utilities_for_rate
 from core.validation import hours_map,number
 from database.db import PayrollConflictError
-from services.report_service import generate_payroll_pdf
+from services.report_service import generate_payroll_pdf,_print_file
 
 MODES=('fixed','custom')
+
+
+class PairPrintError(RuntimeError):
+    def __init__(self,submitted,failed):
+        self.submitted=tuple(submitted)
+        self.failed=failed
+        self.pending=tuple(mode for mode in MODES if mode not in submitted)
+        super().__init__('Could not submit '+failed+' PDF to the print application')
+
+
+def print_payroll_pair(files):
+    """Submit both saved PDFs; do not retry already submitted jobs on failure."""
+    for mode in MODES:
+        if not Path(files[mode]).is_file():raise PairPrintError((),mode)
+    submitted=[]
+    for mode in MODES:
+        try:_print_file(str(files[mode]))
+        except Exception as exc:raise PairPrintError(submitted,mode) from exc
+        submitted.append(mode)
+    return tuple(submitted)
 
 
 def pair_plans(db,employee,values,start,end,utilities):

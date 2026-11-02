@@ -728,3 +728,47 @@ def test_single_save_cannot_leave_wrong_deductions_in_the_other_part(rental_ui,m
     db.update_employee(eid,'Synthetic',15,bank_account_state='yes')
     with pytest.raises(ValueError,match='Use Save both PDFs'):tab._call_pdf('save')
     assert len(db.get_payrolls())==2
+
+
+def test_save_and_print_both_saves_first_and_reminds_without_blocking(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path);sent=[]
+    def printer(path):
+        assert len(db.get_payrolls(current_only=True))==2
+        assert tab.utilities_reminder.grid_info()
+        sent.append(path)
+    monkeypatch.setattr('services.paired_payroll_service._print_file',printer)
+    result=tab._call_both_pdfs(print_after=True)
+    assert result['submitted']==('fixed','custom')
+    assert sent==[result['files'][mode] for mode in ('fixed','custom')]
+    assert tab.utilities_var.get()=='0.00' and not tab.has_unsaved_changes()
+
+
+def test_cancel_save_and_print_sends_nothing(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path);tab._call_both_pdfs();sent=[]
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *args:False)
+    monkeypatch.setattr('services.paired_payroll_service._print_file',lambda path:sent.append(path))
+    assert tab._call_both_pdfs(print_after=True) is None
+    assert not sent and len(db.get_payrolls())==2
+
+
+def test_partial_print_failure_keeps_saved_pair_and_does_not_retry(rental_ui,monkeypatch,tmp_path):
+    from services.paired_payroll_service import PairPrintError
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path);sent=[]
+    def printer(path):
+        sent.append(path)
+        if len(sent)==2:raise OSError('Synthetic failure')
+    monkeypatch.setattr('services.paired_payroll_service._print_file',printer)
+    with pytest.raises(PairPrintError) as caught:tab._call_both_pdfs(print_after=True)
+    assert caught.value.submitted==('fixed',) and caught.value.pending==('custom',)
+    assert len(sent)==2 and len(db.get_payrolls(current_only=True))==2
+    assert all(Path(p['pdf_path']).exists() for p in db.get_payrolls())
+    assert not tab.has_unsaved_changes()
+
+
+def test_generation_failure_never_starts_printing(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;sent=[]
+    def generate(**kw):raise OSError('Synthetic PDF failure')
+    monkeypatch.setattr('services.paired_payroll_service.generate_payroll_pdf',generate)
+    monkeypatch.setattr('services.paired_payroll_service._print_file',lambda path:sent.append(path))
+    with pytest.raises(OSError):tab._call_both_pdfs(print_after=True)
+    assert not sent and not db.get_payrolls()
