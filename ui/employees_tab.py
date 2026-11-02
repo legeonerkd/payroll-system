@@ -76,13 +76,10 @@ class EmployeesTab(ttk.Frame):
         self.tree.heading("iban", text="IBAN")
         self.tree.heading("bic", text="BIC")
 
-        self.tree.column("name", width=200)
-        self.tree.column("rate", width=90, anchor="center")
-        self.tree.column('account',width=115,minwidth=100)
-        self.tree.column('rental',width=95,minwidth=85,anchor='e')
-        self.tree.column("bank", width=150)
-        self.tree.column("iban", width=220)
-        self.tree.column("bic", width=120)
+        for column,width in [('name',220),('rate',110),('account',135),('rental',120),
+                             ('bank',200),('iban',310),('bic',145)]:
+            self.tree.heading(column,anchor='center')
+            self.tree.column(column,width=width,minwidth=width,anchor='center')
 
         # Scrollbar
         scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical", command=self.tree.yview)

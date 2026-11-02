@@ -1,4 +1,4 @@
-# PayrollSystem 1.15.1 — usage
+# PayrollSystem 1.15.2 — usage
 
 ## Payroll screen
 
@@ -151,7 +151,7 @@ unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.
 
-## Saved rental and utilities reminder (1.15.1)
+## Saved rental and utilities reminder (1.15.2)
 
 In Employees, set Rental / statement (€) once; 0 disables the saved rental deduction.
 The saved amount is also shown in the Employees table under Rental (€).
@@ -175,7 +175,7 @@ For an existing employee, imported name/rate/bank updates preserve the saved ren
 Schema 7 adds the saved rental field with a default of zero. A verified pre-migration backup
 is created first. Old statement deductions are not guessed as future recurring settings.
 
-## Save both PDFs (1.15.1)
+## Save both PDFs (1.15.2)
 
 Load the selected employee's period, enter utilities once (0 is valid) and click Save both PDFs.
 The app creates two separately named files, fixed and custom, with the same daily hours.
@@ -206,7 +206,7 @@ the explicit relationship; old records are not automatically guessed as pairs. A
 before upgrading; existing rows, bank details and historical amounts are unchanged. Use the
 pre-upgrade backup if a return to an older app version is necessary.
 
-## Save and print both PDFs (1.15.1)
+## Save and print both PDFs (1.15.2)
 
 Click Save & print both PDFs to save the fixed/custom pair and send both saved files to the
 configured print application, in that order. Both files and statements are saved before either
