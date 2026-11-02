@@ -16,7 +16,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepInFrame
 from config import FIXED_RATE
 from core.models import Employee
 from services.payroll_service import calculate_payroll
@@ -108,42 +108,46 @@ def _render_pdf_to_file(path, employee_name, period_from, period_to, created_at,
         root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
         pdfmetrics.registerFont(TTFont('PayrollUnicode', str(root / 'fonts' / 'DejaVuSans.ttf')))
     styles = getSampleStyleSheet()
-    normal = ParagraphStyle('PayrollBody', parent=styles['Normal'], fontName='PayrollUnicode', fontSize=9, leading=13)
-    title = ParagraphStyle('PayrollTitle', parent=normal, fontSize=14, leading=19, alignment=1, spaceAfter=8)
-    small = ParagraphStyle('PayrollCell', parent=normal, fontSize=8, leading=11)
+    normal = ParagraphStyle('PayrollBody', parent=styles['Normal'], fontName='PayrollUnicode', fontSize=9, leading=11)
+    title = ParagraphStyle('PayrollTitle', parent=normal, fontSize=12, leading=15, alignment=1, spaceAfter=3)
+    small = ParagraphStyle('PayrollCell', parent=normal, fontSize=8, leading=9)
     def para(text, style=normal):
         return Paragraph(escape(str(text)), style)
-    story = [para('Blue Reef Development LTD', title), para('PAYROLL STATEMENT', title), Spacer(1, 5*mm),
+    story = [para('Blue Reef Development LTD', title), para('PAYROLL STATEMENT', title), Spacer(1, 2*mm),
              para(f'Employee: {employee_name}'), para(f'Period: {period_from} - {period_to}'),
-             para(f'Generated on: {created_at}'), Spacer(1, 4*mm)]
+             para(f'Generated on: {created_at}'), Spacer(1, 2*mm)]
     for label, value in [('Bank',bank),('IBAN',iban),('BIC',bic)]:
         if value:
             story.append(para(f'{label}: {value}'))
-    story.append(Spacer(1, 5*mm))
+    story.append(Spacer(1, 2*mm))
     data = [[para(v, small) for v in ['Date','Day','Hours','Hourly rate','Amount']]]
     data.extend([[para(v, small) for v in row] for row in rows])
     table = Table(data, colWidths=[30*mm,40*mm,20*mm,35*mm,40*mm], repeatRows=1, hAlign='LEFT')
     table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),.4,colors.grey),
                                ('BACKGROUND',(0,0),(-1,0),colors.whitesmoke),
                                ('VALIGN',(0,0),(-1,-1),'TOP'),
-                               ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4)]))
-    story.extend([table, Spacer(1, 6*mm)])
+                               ('TOPPADDING',(0,0),(-1,-1),1.5),('BOTTOMPADDING',(0,0),(-1,-1),1.5)]))
+    story.extend([table, Spacer(1, 3*mm)])
     if net_amount is None:
         net_amount = Decimal(str(gross))-Decimal(str(utilities or 0))-Decimal(str(rental or 0))
     totals = [para(f'Total hours: {total_hours:g} h'), para(f'Gross amount: {gross:.2f} €'),
               para(f'Utilities deduction: {utilities or 0:.2f} €'), para(f'Rental deduction: {rental or 0:.2f} €'),
-              para(f'Net amount: {net_amount:.2f} €'), Spacer(1, 10*mm)]
+              para(f'Net amount: {net_amount:.2f} €'), Spacer(1, 5*mm)]
     signatures = Table([[para('Employee signature:'),para('Manager signature:')],
                         [para('________________________'),para('________________________')],
                         [para(f'Date: {created_at}'),para(f'Date: {created_at}')]],colWidths=[85*mm,80*mm])
     totals.append(signatures)
-    story.append(KeepTogether(totals))
+    story.extend(totals)
     doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=20*mm,leftMargin=20*mm,
                             topMargin=18*mm,bottomMargin=18*mm, title='Payroll statement', author='PayrollSystem')
     def page_number(c, document):
         c.setFont('PayrollUnicode',8)
         c.drawRightString(A4[0]-20*mm,10*mm,f'Page {document.page}')
-    doc.build(story,onFirstPage=page_number,onLaterPages=page_number)
+    # Fit the complete statement, including totals and signatures, to one A4 page.
+    # Ordinary monthly reports retain their font sizes; longer content shrinks
+    # proportionally instead of losing rows or spilling onto a second page.
+    content = KeepInFrame(doc.width-12, doc.height-12, story, mode='shrink', hAlign='LEFT', vAlign='TOP')
+    doc.build([content],onFirstPage=page_number,onLaterPages=page_number)
 
 
 def _open_file(path):

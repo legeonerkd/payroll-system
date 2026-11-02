@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from tkcalendar import DateEntry
 from services.report_service import generate_payroll_pdf
@@ -8,6 +9,7 @@ from services.payroll_service import calculate_fixed_payroll, calculate_custom_p
 from core.models import Employee
 from config import FIXED_RATE
 from core.validation import number
+from services.hours_distribution import distribute_hours
 
 DEFAULT_HOURS = 10.0
 HOUR_STEP = 0.5
@@ -24,6 +26,7 @@ class PayrollTab(ttk.Frame):
         self.rate_mode = tk.StringVar(value="fixed")
         self.utilities_var = tk.StringVar(value="0.00")
         self.rental_var = tk.StringVar(value="0.00")
+        self.distribution_hours_var = tk.StringVar(value="")
 
         # Summary variables
         self.total_hours_var = tk.StringVar(value="0.0")
@@ -105,6 +108,13 @@ class PayrollTab(ttk.Frame):
             command=self._generate_period,
             style="Accent.TButton",
         ).grid(row=0, column=6, sticky="w")
+
+        allocation = ttk.Frame(header)
+        allocation.grid(row=1, column=0, columnspan=7, sticky='w', pady=(10,0))
+        ttk.Label(allocation, text='Total hours:').pack(side='left', padx=(0,5))
+        ttk.Entry(allocation, textvariable=self.distribution_hours_var, width=12).pack(side='left', padx=(0,10))
+        ttk.Button(allocation, text='Distribute Mon-Sat', command=self._distribute_hours).pack(side='left')
+        ttk.Label(allocation, text='  Whole hours, varied by day. Sundays: 0.').pack(side='left')
 
     # ======================================================
     # ZONE 2: CONTENT (Hours Table + Rate + Deductions + PDF)
@@ -420,10 +430,34 @@ class PayrollTab(ttk.Frame):
         if self._dirty and not messagebox.askyesno('Unsaved hours', 'Discard unsaved hours and load this period?'):
             return
         stored = {r['work_date']:r['hours'] for r in self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())}
+        self._display_period(start, end, selected, stored, dirty=not bool(stored))
+
+    def _distribute_hours(self):
+        if self._editor is not None:
+            messagebox.showwarning('Hours editor', 'Finish editing hours with Enter before distributing')
+            return
+        selected = self.employee_map.get(self.employee_cb.get())
+        if selected is None:
+            messagebox.showwarning('Employee', 'Select an employee first')
+            return
+        try:
+            start, end = self.from_entry.get_date(), self.to_entry.get_date()
+            values = distribute_hours(start, end, self.distribution_hours_var.get())
+            stored = self.db.load_hours(selected['id'],start.isoformat(),end.isoformat())
+        except ValueError as exc:
+            messagebox.showerror('Distribute hours', str(exc))
+            return
+        if (self._dirty or stored or self.days_data) and not messagebox.askyesno(
+                'Replace hours?', 'Replace the displayed hours with varied whole hours for Monday-Saturday? '
+                'Sundays will be zero. Unsaved edits will be discarded. The database changes only when you save.'):
+            return
+        self._display_period(start, end, selected, values, dirty=True)
+
+    def _display_period(self, start, end, selected, stored, *, dirty):
         self.tree.delete(*self.tree.get_children())
         self.days_data.clear()
         self._context = (selected['id'],start.isoformat(),end.isoformat())
-        self._dirty = not bool(stored)
+        self._dirty = dirty
 
         # Configure zebra tags
         self.tree.tag_configure("odd", background="#f9f9f9")
@@ -539,9 +573,10 @@ class PayrollTab(ttk.Frame):
 
     def _update_total_hours(self):
         """Обновление итогов часов"""
-        total = sum(self.days_data.values())
-        self.total_hours_var.set(f"{total:.1f}")
-        self.total_label.config(text=f"Total: {total:.1f} hours")
+        total = sum((Decimal(str(h)) for h in self.days_data.values()), Decimal(0))
+        display = f'{total:.2f}'.rstrip('0').rstrip('.')
+        self.total_hours_var.set(display)
+        self.total_label.config(text=f"Total: {display} hours")
 
     def _auto_recalculate(self):
         """Автоматический пересчёт Net при изменении параметров"""
@@ -587,7 +622,7 @@ class PayrollTab(ttk.Frame):
             )
 
         # Update summary
-        self.total_hours_var.set(f"{summary.total_hours:.1f}")
+        self._update_total_hours()
         self.gross_var.set(f"{summary.gross_amount:.2f} €")
         
         total_deductions = summary.housing_deduction + summary.utilities_deduction
