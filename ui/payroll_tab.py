@@ -13,7 +13,7 @@ from core.models import Employee
 from core.banking import account_caption,payment_details
 from config import FIXED_RATE
 from core.validation import number
-from services.hours_distribution import distribute_hours
+from services.hours_distribution import distribute_hours, MAX_DISTRIBUTED_HOURS
 
 DEFAULT_HOURS = 10.0
 HOUR_STEP = 0.5
@@ -37,7 +37,7 @@ class PayrollTab(ttk.Frame):
         self.rental_var = tk.StringVar(value="0.00")
         self.distribution_hours_var = tk.StringVar(value="")
         self.distribution_min_var = tk.StringVar(value='0')
-        self.distribution_max_var = tk.StringVar(value='24')
+        self.distribution_max_var = tk.StringVar(value=str(MAX_DISTRIBUTED_HOURS))
         self._locked_days = set()
         self._excluded_days = set()
         self._distribution_dirty=False
@@ -140,7 +140,7 @@ class PayrollTab(ttk.Frame):
         ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,12))
         for column,(text,variable) in enumerate([('Preferred min',self.distribution_min_var),('Preferred max',self.distribution_max_var)],1):
             ttk.Label(allocation,text=text,style='PayrollHint.TLabel').grid(row=0,column=column,sticky='w',padx=(0,10))
-            ttk.Spinbox(allocation,from_=0,to=24,textvariable=variable,width=4).grid(row=1,column=column,pady=(4,0),padx=(0,12))
+            ttk.Spinbox(allocation,from_=0,to=MAX_DISTRIBUTED_HOURS,textvariable=variable,width=4).grid(row=1,column=column,pady=(4,0),padx=(0,12))
         distribute=ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton')
         distribute.grid(row=1,column=3,pady=(4,0))
         def fit_distribution(event):
@@ -151,7 +151,7 @@ class PayrollTab(ttk.Frame):
             else:
                 distribute.grid_configure(row=1,column=3,columnspan=1,sticky='',pady=(4,0))
         allocation.bind('<Configure>',fit_distribution)
-        range_hint=ttk.Label(table_frame,text='Daily range adjusts to match the total. Locked dates keep their hours; excluded dates stay at 0.',style='PayrollHint.TLabel',wraplength=600)
+        range_hint=ttk.Label(table_frame,text='Daily range adjusts to match the total, up to 14 h/day. Locked dates keep their hours; excluded dates stay at 0.',style='PayrollHint.TLabel',wraplength=600)
         range_hint.grid(row=2,column=0,sticky='ew',pady=(7,2))
         range_hint.bind('<Configure>',lambda event:range_hint.configure(wraplength=max(100,event.width)))
         ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
@@ -462,16 +462,16 @@ class PayrollTab(ttk.Frame):
         lo,hi=self.db.load_distribution_settings(emp_id)
         self._loading_distribution_settings=True
         try:
-            self.distribution_min_var.set(str(lo))
-            self.distribution_max_var.set(str(hi))
+            self.distribution_min_var.set(str(min(lo,MAX_DISTRIBUTED_HOURS)))
+            self.distribution_max_var.set(str(min(hi,MAX_DISTRIBUTED_HOURS)))
         finally:
             self._loading_distribution_settings=False
 
     def _distribution_settings(self):
-        lo=number(self.distribution_min_var.get(),'Minimum daily hours',maximum=24)
-        hi=number(self.distribution_max_var.get(),'Maximum daily hours',maximum=24)
+        lo=number(self.distribution_min_var.get(),'Minimum daily hours',maximum=MAX_DISTRIBUTED_HOURS)
+        hi=number(self.distribution_max_var.get(),'Maximum daily hours',maximum=MAX_DISTRIBUTED_HOURS)
         if lo!=lo.to_integral_value() or hi!=hi.to_integral_value() or lo>hi:
-            raise ValueError('Daily range must use whole numbers with 0 <= Min <= Max <= 24')
+            raise ValueError('Daily range must use whole numbers with 0 <= Min <= Max <= 14')
         return int(lo),int(hi)
 
     def _distribution_settings_changed(self,*args):

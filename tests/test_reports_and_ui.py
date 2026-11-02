@@ -257,11 +257,11 @@ def test_pins_exclusions_range_survive_save_reload_and_distribution(ui,monkeypat
     original=dict(tab.days_data)
     errors=[]
     monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:errors.append(a))
-    tab.distribution_hours_var.set('30');tab._distribute_hours()
-    assert not errors and sum(tab.days_data.values())==30
-    assert tab.days_data['2026-05-01']==10 and tab.days_data['2026-05-04']==20
+    tab.distribution_hours_var.set('23');tab._distribute_hours()
+    assert not errors and sum(tab.days_data.values())==23
+    assert tab.days_data['2026-05-01']==10 and tab.days_data['2026-05-04']==13
     original=dict(tab.days_data)
-    tab.distribution_hours_var.set('35');tab._distribute_hours()
+    tab.distribution_hours_var.set('25');tab._distribute_hours()
     assert errors and tab.days_data==original
     monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
     tab._call_pdf('save')
@@ -276,7 +276,7 @@ def test_date_locks_do_not_leak_when_switching_employee(ui,monkeypatch):
     tab._save_draft()
     select(tab,second);tab._employee_changed()
     assert not tab._locked_days and not tab._excluded_days
-    assert tab._distribution_settings()==(0,24)
+    assert tab._distribution_settings()==(0,14)
 
 
 def test_excluded_date_must_be_included_before_edit_or_lock(ui,monkeypatch):

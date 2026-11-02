@@ -6,8 +6,10 @@ from core.validation import number
 from core.validation import iso_date
 from decimal import Decimal
 
+MAX_DISTRIBUTED_HOURS = 14
 
-def distribute_hours(start, end, total, *, minimum=0, maximum=24, locked=None, excluded=None):
+
+def distribute_hours(start, end, total, *, minimum=0, maximum=MAX_DISTRIBUTED_HOURS, locked=None, excluded=None):
     if start > end or (end-start).days > 365:
         raise ValueError('Select a period of 1 to 366 days with From before To')
     total = number(str(total).replace(',', '.'), 'Total hours')
@@ -16,6 +18,9 @@ def distribute_hours(start, end, total, *, minimum=0, maximum=24, locked=None, e
     if minimum!=minimum.to_integral_value() or maximum!=maximum.to_integral_value() or minimum>maximum:
         raise ValueError('Daily range must use whole numbers with 0 <= Min <= Max <= 24')
     minimum,maximum=int(minimum),int(maximum)
+    # Older saved preferences can reach 24; apply the current distribution cap.
+    minimum=min(minimum,MAX_DISTRIBUTED_HOURS)
+    maximum=min(maximum,MAX_DISTRIBUTED_HOURS)
     dates = [start+timedelta(days=i) for i in range((end-start).days+1)]
     keys={day.isoformat() for day in dates}
     locked={iso_date(day):number(hours,'Locked hours',maximum=24) for day,hours in (locked or {}).items()}
@@ -24,6 +29,8 @@ def distribute_hours(start, end, total, *, minimum=0, maximum=24, locked=None, e
         raise ValueError('Locked and excluded dates must belong to the selected period')
     if set(locked)&excluded:
         raise ValueError('A date cannot be both locked and excluded')
+    if any(hours>MAX_DISTRIBUTED_HOURS for hours in locked.values()):
+        raise ValueError('A locked date exceeds 14 hours. Edit its hours before distributing; locked hours will not be changed automatically.')
     remaining=total-sum(locked.values(),Decimal(0))
     if remaining<0:
         raise ValueError('Total hours are less than the locked hours')
@@ -35,16 +42,16 @@ def distribute_hours(start, end, total, *, minimum=0, maximum=24, locked=None, e
     if not working:
         if remaining==0: return result
         raise ValueError('No unlocked Monday-Saturday working days remain for the requested hours')
-    if remaining>len(working)*24:
+    if remaining>len(working)*MAX_DISTRIBUTED_HOURS:
         fixed=sum(locked.values(),Decimal(0))
-        raise ValueError(f'This period can hold at most {fixed+len(working)*24:g} hours '
-                         'with 24 hours per available day. Extend the period or unlock more dates.')
+        raise ValueError(f'This period can hold at most {fixed+len(working)*MAX_DISTRIBUTED_HOURS:g} hours '
+                         'with 14 hours per available day. Extend the period or unlock more dates.')
     # The requested total takes priority over the preferred daily range. Relax
     # only the side that cannot accommodate it; locks and exclusions remain hard.
     if remaining<len(working)*minimum:
         minimum=0
     if remaining>len(working)*maximum:
-        maximum=24
+        maximum=MAX_DISTRIBUTED_HOURS
     base, remainder = divmod(int(remaining), len(working))
     allocations = [base + (i < remainder) for i in range(len(working))]
     random.shuffle(allocations)
