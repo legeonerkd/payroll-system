@@ -1,13 +1,14 @@
-# PayrollSystem 1.14.1
+# PayrollSystem 1.15.0
 
 Local Windows application for employees, working hours and PDF payroll statements.
 
 ## Features
 
 - Employees with stable IDs, custom hourly rates and optional banking details. Namesakes are supported. Archive preserves hours and payroll history.
-- Fixed rate of 8 EUR/hour or the employee's custom rate. Saved rental applies to Fixed rate for Bank account Yes, or Employee rate for No; Not specified requires clarification. Utilities remain manual, including zero. Printing with a rental deduction shows a non-blocking utilities reminder.
+- Fixed rate of 8 EUR/hour or the employee's custom rate. Rental and manually entered utilities apply to Fixed rate for Bank account Yes, or Employee rate for No; Not specified applies neither and requires clarification. Zero utilities are valid. Printing with a rental deduction shows a non-blocking utilities reminder.
 - Load an existing timesheet or generate a period (up to 366 days). New periods start with 10 weekday hours and zero weekend hours; verify them before saving.
 - Save draft hours independently. Preview and Print do not change the database. Save payroll + PDF records an immutable snapshot with applied rates, deductions and bank details.
+- Save both PDFs creates separate fixed/custom files and saves both statements atomically. Corrections remain separate by rate; monthly totals count matching paired hours once.
 - XLSX import with validation, optional Employee ID, an all-or-nothing database transaction and unique PDF documents. Explicit zero hours correct existing hours. Blank bank fields preserve existing values.
 - Unicode PDF statements fit on one A4 page; longer content shrinks. History reopens the saved calculation without using the employee's current card.
 - Whole-hour distribution with daily limits, locked dates and excluded non-working dates; manual editing remains available.
@@ -31,7 +32,7 @@ Tests and build instructions: [BUILD.md](BUILD.md). Usage: [USER_GUIDE.md](USER_
 
 The database is stored in `%LOCALAPPDATA%\PayrollSystem\payroll.db`. A verified SQLite backup is created on startup before updating an existing database. `Data > Create database backup` creates another copy; copy backups to a separate drive as well.
 
-Version 1.14.1 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
+Version 1.15.0 migrates the legacy `bank_name` and `daily_hours` schema automatically. Migration failure leaves the original data unchanged. Rates and completed payrolls that older versions never saved cannot be reconstructed: legacy hours remain available with an unknown applied rate. Do not open an upgraded database with an older application version; use the pre-upgrade backup for rollback.
 
 Uninstall preserves the database and backups. The application never uploads payroll data. Do not commit databases, payroll documents, exports or personal examples to Git.
 

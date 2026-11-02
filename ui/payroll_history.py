@@ -23,13 +23,15 @@ class PayrollHistory(tk.Toplevel):
         container.rowconfigure(0,weight=1);container.columnconfigure(0,weight=1)
         self.tree = ttk.Treeview(
             container,
-            columns=("id", "employee", "period", "created", "net",'status','corrects'),
+            columns=("id", "employee", "period",'mode', "created", "net",'status','corrects'),
             show="headings"
         )
 
         self.tree.heading("id", text="ID")
         self.tree.heading("employee", text="Employee")
         self.tree.heading("period", text="Period")
+        self.tree.heading('mode',text='Rate')
+        self.tree.column('mode',width=110,minwidth=85)
         self.tree.heading("created", text="Created")
         self.tree.heading("net", text="Net amount")
         self.tree.heading('status',text='Status')
@@ -66,6 +68,7 @@ class PayrollHistory(tk.Toplevel):
                     r["id"],
                     f'{r["name"]} [#{r["employee_id"]}]',
                     f"{r['period_from']} – {r['period_to']}",
+                    'Fixed' if r['rate_mode']=='fixed' else 'Employee',
                     r["created_at"],
                     f"{r['net_amount']:.2f} €",
                     f'Superseded by #{r["superseded_by"]}' if r['superseded_by'] else 'Current',

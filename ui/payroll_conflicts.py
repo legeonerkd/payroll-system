@@ -9,7 +9,7 @@ def choose_existing_payroll(parent,records):
     dialog.transient(parent.winfo_toplevel())
     dialog.resizable(False,False)
     box=ttk.Frame(dialog,padding=16);box.pack(fill='both',expand=True)
-    ttk.Label(box,text='This employee already has a statement for this exact period.',wraplength=540).pack(anchor='w')
+    ttk.Label(box,text='This employee already has a statement for the selected rate and exact period.',wraplength=540).pack(anchor='w')
     ttk.Label(box,text='Open a saved statement, or create a corrected version. Originals remain in history.',wraplength=540).pack(anchor='w',pady=(5,12))
     tree=ttk.Treeview(box,columns=('id','period','net'),show='headings',height=min(5,len(records)))
     for column,text,width in [('id','ID',60),('period','Period',280),('net','Net pay',120)]:

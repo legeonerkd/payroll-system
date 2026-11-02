@@ -48,10 +48,13 @@ def test_import_uses_saved_rental_and_preserves_employee_setting(tmp_path,monkey
     def pdf(*args,**kwargs):
         captured.append(args);path=tmp_path/'synthetic.pdf';path.write_bytes(b'test');return str(path)
     monkeypatch.setattr('services.excel_import_service.generate_payroll_pdf',pdf)
-    process_import(db,[emp],options(save_to_db=save_to_db,create_pdf=True,rate_mode=mode))
+    process_import(db,[emp],options(save_to_db=save_to_db,create_pdf=True,rate_mode=mode,utilities='7'))
     assert float(captured[0][5])==expected
+    assert float(captured[0][4])==(7 if expected else 0)
     assert db.get_employee(eid)['rental_amount']==50
-    if save_to_db:assert db.get_payrolls()[0]['rental']==expected
+    if save_to_db:
+        assert db.get_payrolls()[0]['rental']==expected
+        assert db.get_payrolls()[0]['utilities']==(7 if expected else 0)
     else:assert not db.get_payrolls() and not db.get_all_hours()
     db.close()
 

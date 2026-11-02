@@ -582,7 +582,7 @@ def test_switching_rate_uses_saved_rental_and_keeps_utilities_manual(rental_ui,m
     assert tab.rental_var.get()=='50.00' and tab.net_var.get()=='14.00 €'
     tab.utilities_var.set('4')
     tab.rate_mode.set('custom')
-    assert tab.rental_var.get()=='0.00' and tab.net_var.get()=='116.00 €'
+    assert tab.rental_var.get()=='0.00' and tab.net_var.get()=='120.00 €'
     assert tab.utilities_var.get()=='4'
     tab.rate_mode.set('fixed')
     assert tab.net_var.get()=='10.00 €'
@@ -649,3 +649,82 @@ def test_employee_form_saves_and_guards_rental(rental_ui,monkeypatch):
     assert db.get_employee(eid)['rental_amount']==72.5
     editor._new_employee_mode();assert editor.rental_var.get()=='0.00'
     editor.destroy()
+
+
+def paired_files(monkeypatch,tmp_path):
+    calls=[]
+    def generate(**kw):
+        path=tmp_path/f"Payroll_pair_{len(calls)}_{kw['rate_mode']}.pdf"
+        path.write_bytes(b'synthetic');calls.append(kw);return str(path)
+    monkeypatch.setattr('services.paired_payroll_service.generate_payroll_pdf',generate)
+    return calls
+
+
+def test_save_both_keeps_mode_and_entered_utilities_and_saves_two_parts(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;calls=paired_files(monkeypatch,tmp_path)
+    tab.utilities_var.set('4')
+    result=tab._call_both_pdfs()
+    assert len(calls)==2 and len(set(result['files'].values()))==2
+    assert tab.rate_mode.get()=='fixed' and tab.utilities_var.get()=='4'
+    assert [float(kw['utilities']) for kw in calls]==[4,0]
+    assert [float(kw['rental']) for kw in calls]==[50,0]
+    assert not tab.has_unsaved_changes()
+    summary=db.get_month_summary(2026,11)
+    assert summary['totals']['hours']==8 and summary['totals']['net']==130
+
+
+def test_cancel_pair_correction_preserves_both_files_and_records(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;calls=paired_files(monkeypatch,tmp_path)
+    first=tab._call_both_pdfs();before=[dict(p) for p in db.get_payrolls()]
+    tab.utilities_var.set('10')
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:False)
+    assert tab._call_both_pdfs() is None
+    assert len(calls)==2 and [dict(p) for p in db.get_payrolls()]==before
+    assert all(Path(path).exists() for path in first['files'].values())
+    assert tab.has_unsaved_changes()
+
+
+def test_bank_account_appears_output_refreshes_card_and_corrects_both(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;calls=paired_files(monkeypatch,tmp_path)
+    db.update_employee(eid,'Synthetic',15,bank_account_state='no')
+    tab.utilities_var.set('4')
+    tab._call_both_pdfs()
+    assert [float(kw['utilities']) for kw in calls]==[0,4]
+    originals={p['id']:dict(db.get_payroll_full(p['id'])[0]) for p in db.get_payrolls()}
+    db.update_employee(eid,'Updated',16,'Example Bank','TEST-1234','EXAMPLE',bank_account_state='yes')
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:True)
+    tab._call_both_pdfs()
+    assert [float(kw['utilities']) for kw in calls[-2:]]==[4,0]
+    assert [float(kw['rental']) for kw in calls[-2:]]==[50,0]
+    assert all(kw['employee_name']=='Updated' and kw['employee_rate']==16 for kw in calls[-2:])
+    assert tab.utilities_var.get()=='4' and tab.net_var.get()=='10.00 €'
+    assert all(dict(db.get_payroll_full(pid)[0])==old for pid,old in originals.items())
+    assert db.get_month_summary(2026,11)['totals']['deductions']==54
+
+
+def test_utilities_only_bank_change_marks_saved_payroll_unsaved(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path)
+    db.update_employee(eid,'Synthetic',15,rental_amount=0);tab.refresh_employees()
+    tab.utilities_var.set('4');tab._call_both_pdfs()
+    db.update_employee(eid,'Synthetic',15,bank_account_state='no');tab.refresh_employees()
+    assert tab.has_unsaved_changes() and tab.net_var.get()=='64.00 €'
+    assert tab.utilities_var.get()=='4'
+    tab.rate_mode.set('custom');assert tab.net_var.get()=='116.00 €'
+
+
+def test_unknown_account_does_not_apply_utilities_and_shows_hint(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;calls=paired_files(monkeypatch,tmp_path)
+    db.update_employee(eid,'Synthetic',15,rental_amount=0,bank_account_state='unknown');tab.refresh_employees()
+    tab.utilities_var.set('4')
+    assert 'apply deductions' in tab.bank_detail_var.get() and tab.net_var.get()=='64.00 €'
+    tab._call_both_pdfs()
+    assert all(float(kw['utilities'])==float(kw['rental'])==0 for kw in calls)
+
+
+def test_single_save_cannot_leave_wrong_deductions_in_the_other_part(rental_ui,monkeypatch,tmp_path):
+    _,db,eid,tab=rental_ui;paired_files(monkeypatch,tmp_path)
+    db.update_employee(eid,'Synthetic',15,bank_account_state='no');tab.utilities_var.set('4')
+    tab._call_both_pdfs()
+    db.update_employee(eid,'Synthetic',15,bank_account_state='yes')
+    with pytest.raises(ValueError,match='Use Save both PDFs'):tab._call_pdf('save')
+    assert len(db.get_payrolls())==2

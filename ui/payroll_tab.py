@@ -11,7 +11,8 @@ from pathlib import Path
 from services.payroll_service import calculate_fixed_payroll, calculate_custom_payroll
 from core.models import Employee
 from core.banking import account_caption,payment_details
-from core.rental import rental_for_rate,rental_hint
+from core.rental import rental_for_rate,rental_hint,utilities_for_rate,deduction_mode
+from services.paired_payroll_service import pair_plans,save_payroll_pair
 from config import FIXED_RATE
 from core.validation import number
 from services.hours_distribution import distribute_hours, MAX_DISTRIBUTED_HOURS
@@ -114,8 +115,10 @@ class PayrollTab(ttk.Frame):
     def _update_bank_information(self):
         selected=self.employee_map.get(self.employee_cb.get())
         status,detail,state=account_caption(selected)
-        if state=='unknown' and selected is not None and selected['rental_amount']>0:
-            detail='Set Bank account to Yes or No in Employee Details to apply rental.'
+        try:has_utilities=number(self.utilities_var.get() or 0,'Utilities deduction')>0
+        except ValueError:has_utilities=False
+        if state=='unknown' and selected is not None and (selected['rental_amount']>0 or has_utilities):
+            detail='Set Bank account to Yes or No in Employee Details to apply deductions.'
         self.bank_account_var.set(status);self.bank_detail_var.set(detail)
         self.bank_status_label.configure(style={'yes':'AccountYes.TLabel','no':'AccountNo.TLabel','unknown':'AccountUnknown.TLabel'}[state])
         if self.bank_edit_button is not None:self.bank_edit_button.configure(state='normal' if selected is not None else 'disabled')
@@ -249,6 +252,10 @@ class PayrollTab(ttk.Frame):
         ttk.Label(card,text='Deductions',style='PayrollHeading.TLabel').grid(row=0,column=0,columnspan=2,sticky='w',pady=(0,4))
         ttk.Label(card,text='Utilities (€)',style='PayrollHint.TLabel').grid(row=1,column=0,columnspan=2,sticky='w')
         ttk.Entry(card,textvariable=self.utilities_var,width=11).grid(row=2,column=0,columnspan=2,sticky='ew',pady=(3,0))
+        self.utilities_scope_var=tk.StringVar()
+        scope=ttk.Label(card,textvariable=self.utilities_scope_var,style='PayrollHint.TLabel',wraplength=205)
+        scope.grid(row=3,column=0,columnspan=2,sticky='ew',pady=(6,0))
+        scope.bind('<Configure>',lambda event:scope.configure(wraplength=max(100,event.width)))
 
     def _build_summary(self,parent):
         card=ttk.Frame(parent,style='PayrollCard.TFrame')
@@ -271,13 +278,14 @@ class PayrollTab(ttk.Frame):
         card.columnconfigure(0,weight=1)
         ttk.Button(card,text='Save hours',command=self._save_draft,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew')
         ttk.Label(card,text='Save a draft. No payroll is issued.',style='PayrollHint.TLabel').grid(row=1,column=0,sticky='w',pady=(3,8))
-        ttk.Button(card,text='Save payroll + PDF',command=self._save_pdf,style='Accent.TButton').grid(row=2,column=0,sticky='ew')
+        ttk.Button(card,text='Save both PDFs',command=self._save_both_pdf,style='Accent.TButton').grid(row=2,column=0,sticky='ew')
+        ttk.Button(card,text='Save payroll + PDF',command=self._save_pdf,style='PayrollSecondary.TButton').grid(row=3,column=0,sticky='ew',pady=(5,0))
         secondary=ttk.Frame(card,style='PayrollCard.TFrame')
-        secondary.grid(row=3,column=0,sticky='ew',pady=(5,0))
+        secondary.grid(row=4,column=0,sticky='ew',pady=(5,0))
         secondary.columnconfigure((0,1),weight=1)
         ttk.Button(secondary,text='Preview PDF',command=self._preview_pdf,style='PayrollSecondary.TButton').grid(row=0,column=0,sticky='ew',padx=(0,5))
         ttk.Button(secondary,text='Print',command=self._print_pdf,style='PayrollSecondary.TButton').grid(row=0,column=1,sticky='ew')
-        ttk.Label(card,text='Preview and print do not save changes.',style='PayrollHint.TLabel').grid(row=4,column=0,sticky='w',pady=(5,0))
+        ttk.Label(card,text='Preview and print do not save changes.',style='PayrollHint.TLabel').grid(row=5,column=0,sticky='w',pady=(5,0))
 
 
     def _load_employees(self):
@@ -303,7 +311,8 @@ class PayrollTab(ttk.Frame):
             updated=self.employee_map[selected]
             keys=('name',)+ (('rate',) if self.rate_mode.get()=='custom' else ())
             if old is not None and self.days_data and (any(old[key]!=updated[key] for key in keys) or payment_details(old)!=payment_details(updated)
-                or rental_for_rate(old,self.rate_mode.get())!=rental_for_rate(updated,self.rate_mode.get())):
+                or rental_for_rate(old,self.rate_mode.get())!=rental_for_rate(updated,self.rate_mode.get())
+                or deduction_mode(old)!=deduction_mode(updated)):
                 self._payroll_dirty=True
         elif names:
             self.employee_cb.current(0)
@@ -642,6 +651,7 @@ class PayrollTab(ttk.Frame):
         if self.days_data:
             self._payroll_dirty = True
         self._auto_recalculate()
+        self._update_bank_information()
         self._update_save_status()
 
     def _update_save_status(self):
@@ -688,7 +698,7 @@ class PayrollTab(ttk.Frame):
         )
 
         try:
-            utilities = float(number(self.utilities_var.get() or 0, 'Utilities deduction'))
+            utilities = float(utilities_for_rate(emp_data,self.rate_mode.get(),self.utilities_var.get() or 0))
         except ValueError:
             self.net_var.set('Invalid deduction')
             return
@@ -724,6 +734,8 @@ class PayrollTab(ttk.Frame):
         employee=self.employee_map.get(self.employee_cb.get())
         self.rental_var.set(f'{rental_for_rate(employee,self.rate_mode.get()):.2f}')
         self.rental_hint_var.set(rental_hint(employee,self.rate_mode.get()))
+        target=deduction_mode(employee)
+        self.utilities_scope_var.set('Utilities apply to '+('Fixed rate only.' if target=='fixed' else 'Employee rate only.') if target else 'Set Bank account to Yes or No to apply utilities.')
 
     def _show_utilities_reminder(self):
         # An inline notice has no modal dialog, grab, answer or required value.
@@ -750,6 +762,41 @@ class PayrollTab(ttk.Frame):
         except Exception as e:
             messagebox.showerror("PDF Save", str(e))
 
+    def _current_output_employee(self):
+        selected=self.employee_map.get(self.employee_cb.get())
+        if selected is None:raise ValueError('Employee not selected')
+        current=self.db.get_employee(selected['id'])
+        if current['archived']:raise ValueError('Employee is archived. Select an active employee.')
+        if dict(current)!=dict(selected):self.refresh_employees()
+        return current
+
+    def _save_both_pdf(self):
+        try:
+            result=self._call_both_pdfs()
+            if result:messagebox.showinfo('Both payrolls saved','Fixed rate:\n'+result['files']['fixed']+'\n\nEmployee rate:\n'+result['files']['custom'])
+        except Exception as exc:messagebox.showerror('Save both PDFs',str(exc))
+
+    def _call_both_pdfs(self):
+        employee=self._current_output_employee()
+        if self._editor is not None:raise ValueError('Finish editing hours with Enter before creating PDFs')
+        start,end=self.from_entry.get_date().isoformat(),self.to_entry.get_date().isoformat()
+        if not self.days_data or self._context!=(employee['id'],start,end):
+            raise ValueError('Generate the selected period before creating PDFs')
+        utilities=number(self.utilities_var.get() or 0,'Utilities deduction')
+        settings=self._distribution_settings()
+        plans=pair_plans(self.db,employee,self.days_data,start,end,utilities)
+        if any(plan['exact'] or plan['overlaps'] for plan in plans.values()):
+            existing='\n'.join(f'{mode}: '+', '.join('#'+str(p['id']) for p in plan['exact']+plan['overlaps'])
+                               for mode,plan in plans.items() if plan['exact'] or plan['overlaps'])
+            if not messagebox.askyesno('Save both payrolls?',
+                'Existing current statements:\n'+existing+'\n\nCreate both PDFs? Statements for the same rate and exact period will be corrected; originals stay in history. Other overlapping periods remain in monthly totals and will be flagged for review.'):
+                return None
+        result=save_payroll_pair(self.db,employee,self.days_data,start,end,utilities,plans=plans,
+                                day_rules=self._day_rules(),settings=settings)
+        self._dirty=False;self._payroll_dirty=False;self._distribution_dirty=False
+        self._saved_kind='payroll';self._update_save_status()
+        return result
+
     def _print_pdf(self):
         """Печать PDF"""
         try:
@@ -768,7 +815,7 @@ class PayrollTab(ttk.Frame):
         if not name:
             raise ValueError("Employee not selected")
 
-        emp = self.employee_map[name]
+        emp = self._current_output_employee()
 
         if self._editor is not None:
             raise ValueError('Finish editing hours with Enter before creating a PDF')
@@ -776,7 +823,7 @@ class PayrollTab(ttk.Frame):
         if not self.days_data or self._context != context:
             raise ValueError('Generate the selected period before creating a PDF')
         rows = [(day, '', hours) for day,hours in sorted(self.days_data.items())]
-        utilities = number(self.utilities_var.get() or 0, 'Utilities deduction')
+        utilities = utilities_for_rate(emp,self.rate_mode.get(),self.utilities_var.get() or 0)
         rental = rental_for_rate(emp,self.rate_mode.get())
         settings=self._distribution_settings() if action=='save' else None
         details=payment_details(emp)
@@ -784,6 +831,10 @@ class PayrollTab(ttk.Frame):
         expected_ids=None
         allow_overlap=False
         if action=='save':
+            other=[p for p in self.db.get_payrolls(current_only=True) if p['employee_id']==emp['id'] and p['period_from']==context[1]
+                   and p['period_to']==context[2] and p['rate_mode']!=self.rate_mode.get()]
+            if other:
+                raise ValueError('This period already has the other rate statement. Use Save both PDFs to save or correct both parts together.')
             plan=self.db.payroll_save_plan(emp['id'],self.days_data,self.rate_mode.get(),context[1],context[2],str(utilities),str(rental))
             expected_ids=[p['id'] for p in plan['exact']]
             if plan['exact']:
