@@ -13,7 +13,11 @@ from core.models import Employee
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+
+
+class PayrollConflictError(ValueError):
+    pass
 
 
 class Database:
@@ -140,6 +144,15 @@ class Database:
                 employee_id INTEGER PRIMARY KEY REFERENCES employees(id),
                 min_hours INTEGER NOT NULL CHECK(min_hours>=0 AND min_hours<=24),
                 max_hours INTEGER NOT NULL CHECK(max_hours>=min_hours AND max_hours<=24))''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS payroll_revision_links (
+                payroll_id INTEGER NOT NULL REFERENCES payrolls(id),
+                replaces_id INTEGER NOT NULL UNIQUE REFERENCES payrolls(id),
+                CHECK(payroll_id>replaces_id), PRIMARY KEY(payroll_id,replaces_id))''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS payroll_content_keys (
+                payroll_id INTEGER PRIMARY KEY REFERENCES payrolls(id), content_hash TEXT NOT NULL)''')
+            self.conn.execute('''INSERT INTO payroll_content_keys(payroll_id,content_hash)
+                SELECT p.id,p.fingerprint FROM payrolls p WHERE NOT EXISTS
+                (SELECT 1 FROM payroll_content_keys k WHERE k.payroll_id=p.id)''')
             self.conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
 
     def get_employees(self, include_archived=False):
@@ -245,39 +258,116 @@ class Database:
                 ON CONFLICT(employee_id) DO UPDATE SET min_hours=excluded.min_hours,max_hours=excluded.max_hours''',
                 (emp_id,int(lo),int(hi)))
 
-    def save_payroll(self, emp_id, values, rate_mode, start, end, utilities=0, rental=0, pdf_path=None, *, day_rules=None, distribution_settings=(0,24)):
+    def payroll_save_plan(self,emp_id,values,rate_mode,start,end,utilities=0,rental=0):
+        self._prepare_payroll(emp_id,values,rate_mode,start,end,utilities,rental)
+        current=self.get_payrolls(current_only=True)
+        exact=[p for p in current if p['employee_id']==emp_id and p['period_from']==start and p['period_to']==end]
+        overlaps=[p for p in current if p['employee_id']==emp_id and p['period_from']<=end and p['period_to']>=start
+                  and not(p['period_from']==start and p['period_to']==end)]
+        return {'exact':exact,'overlaps':overlaps}
+
+    def _prepare_payroll(self,emp_id,values,rate_mode,start,end,utilities,rental):
         iso_date(start); iso_date(end)
         values = hours_map(values)
         if start > end or not values or any(not start <= d <= end for d in values):
             raise ValueError('Hours must belong to the selected non-empty period')
+        e=self.get_employee(emp_id)
+        if e['archived']: raise ValueError('Employee is archived')
+        rows,summary=calculate_payroll(Employee.from_row(e),values,rate_mode,utilities=utilities,housing=rental)
+        rate=rows[0].rate
+        snapshot=dict(employee_id=emp_id,name=e['name'],rate=rate,rate_mode=rate_mode,
+            period_from=start,period_to=end,bank=e['bank'],iban=e['iban'],bic=e['bic'],
+            utilities=summary.utilities_deduction,rental=summary.housing_deduction,
+            total_hours=summary.total_hours,gross_amount=summary.gross_amount,net_amount=summary.net_amount)
+        key=hashlib.sha256(json.dumps([snapshot,sorted(values.items())],sort_keys=True).encode()).hexdigest()
+        return values,rows,snapshot,key
+
+    def save_payroll(self, emp_id, values, rate_mode, start, end, utilities=0, rental=0, pdf_path=None, *, day_rules=None,
+                     distribution_settings=(0,24),replaces_ids=(),allow_overlap=False,expected_current_ids=None):
         with self.transaction():
-            e = self.get_employee(emp_id)
-            rows, summary = calculate_payroll(Employee.from_row(e), values, rate_mode, utilities=utilities, housing=rental)
-            rate = rows[0].rate
-            snapshot = dict(employee_id=emp_id, name=e['name'], rate=rate, rate_mode=rate_mode,
-                            period_from=start, period_to=end, bank=e['bank'], iban=e['iban'], bic=e['bic'],
-                            utilities=summary.utilities_deduction, rental=summary.housing_deduction,
-                            total_hours=summary.total_hours, gross_amount=summary.gross_amount, net_amount=summary.net_amount)
-            fingerprint = hashlib.sha256(json.dumps([snapshot, sorted(values.items())], sort_keys=True).encode()).hexdigest()
-            existing = self.conn.execute('SELECT id FROM payrolls WHERE fingerprint=?', (fingerprint,)).fetchone()
+            values,rows,snapshot,content_hash=self._prepare_payroll(emp_id,values,rate_mode,start,end,utilities,rental)
+            plan=self.payroll_save_plan(emp_id,values,rate_mode,start,end,utilities,rental)
+            current_ids={p['id'] for p in plan['exact']}
+            replaces_ids=set(replaces_ids)
+            if expected_current_ids is not None and set(expected_current_ids)!=current_ids:
+                raise PayrollConflictError('Payroll history changed. Review the current statements and try again.')
+            existing=None
+            if replaces_ids:
+                if replaces_ids!=current_ids:
+                    raise PayrollConflictError('A correction must replace all current statements for this employee and exact period.')
+            elif current_ids:
+                if len(current_ids)==1:
+                    candidate=next(iter(current_ids))
+                    key=self.conn.execute('SELECT content_hash FROM payroll_content_keys WHERE payroll_id=?',(candidate,)).fetchone()[0]
+                    if key==content_hash: existing=candidate
+                if existing is None:
+                    raise PayrollConflictError('A statement already exists for this period. Open it or explicitly create a corrected version in Payroll.')
+            if plan['overlaps'] and not allow_overlap:
+                raise PayrollConflictError('This period overlaps another current statement. Review and explicitly confirm the overlap in Payroll.')
+            rate=rows[0].rate
             if day_rules is None:
                 self.save_hours_batch(emp_id, values, rate=rate)
             else:
                 self.save_period_hours(emp_id,values,day_rules,distribution_settings,rate=rate)
-            if existing:
-                self.conn.execute('UPDATE payrolls SET pdf_path=COALESCE(?,pdf_path) WHERE id=?', (pdf_path, existing['id']))
-                return existing['id']
+            if existing is not None: return existing
+            fingerprint=hashlib.sha256(json.dumps([content_hash,sorted(replaces_ids)]).encode()).hexdigest() if replaces_ids else content_hash
             snapshot.update(created_at=datetime.now().isoformat(timespec='seconds'), pdf_path=pdf_path, fingerprint=fingerprint)
             columns = ','.join(snapshot)
             marks = ','.join('?' for _ in snapshot)
             cur = self.conn.execute(f'INSERT INTO payrolls({columns}) VALUES({marks})', tuple(snapshot.values()))
             payroll_id = cur.lastrowid
+            self.conn.execute('INSERT INTO payroll_content_keys(payroll_id,content_hash) VALUES(?,?)',(payroll_id,content_hash))
+            self.conn.executemany('INSERT INTO payroll_revision_links(payroll_id,replaces_id) VALUES(?,?)',[(payroll_id,pid) for pid in replaces_ids])
             self.conn.executemany('INSERT INTO payroll_days(payroll_id,work_date,hours,rate,amount) VALUES(?,?,?,?,?)',
                                  [(payroll_id,r.date,r.hours,r.rate,r.amount) for r in rows])
             return payroll_id
 
-    def get_payrolls(self):
-        return self.conn.execute('SELECT * FROM payrolls ORDER BY id DESC').fetchall()
+    def get_payrolls(self,current_only=False):
+        query='''SELECT p.*,
+            (SELECT GROUP_CONCAT(replaces_id, ', ') FROM payroll_revision_links WHERE payroll_id=p.id) AS corrects,
+            (SELECT payroll_id FROM payroll_revision_links WHERE replaces_id=p.id) AS superseded_by
+            FROM payrolls p'''
+        if current_only: query+=' WHERE NOT EXISTS(SELECT 1 FROM payroll_revision_links l WHERE l.replaces_id=p.id)'
+        return self.conn.execute(query+' ORDER BY p.id DESC').fetchall()
+
+    def get_month_summary(self,year,month):
+        from calendar import monthrange
+        from datetime import date
+        first=date(year,month,1).isoformat();last=date(year,month,monthrange(year,month)[1]).isoformat()
+        current=self.get_payrolls(current_only=True)
+        selected=[p for p in current if first<=p['period_to']<=last]
+        groups={}
+        for p in current:
+            groups.setdefault((p['employee_id'],p['period_from'],p['period_to']),[]).append(p)
+        ambiguous={p['id'] for g in groups.values() if len(g)>1 for p in g}
+        employees={}
+        def employee(eid):
+            if eid not in employees:
+                e=self.get_employee(eid)
+                employees[eid]={'employee_id':eid,'name':e['name'],'hours':Decimal(0),'gross':Decimal(0),
+                    'deductions':Decimal(0),'net':Decimal(0),'draft_hours':Decimal(0),'draft_days':0,'payroll_ids':[],'review_ids':[]}
+            return employees[eid]
+        included=[];review=[];overlaps=[]
+        for p in selected:
+            e=employee(p['employee_id'])
+            if p['id'] in ambiguous:
+                review.append(p['id']);e['review_ids'].append(p['id']);continue
+            included.append(p['id']);e['payroll_ids'].append(p['id'])
+            for key,column in [('hours','total_hours'),('gross','gross_amount'),('net','net_amount')]:
+                e[key]+=Decimal(str(p[column]))
+            e['deductions']+=Decimal(str(p['utilities']))+Decimal(str(p['rental']))
+            if any(q['id']!=p['id'] and q['employee_id']==p['employee_id'] and q['period_from']<=p['period_to'] and q['period_to']>=p['period_from'] for q in current):
+                overlaps.append(p['id'])
+        issued={}
+        for r in self.conn.execute('''SELECT p.employee_id,d.work_date,d.hours FROM payroll_days d JOIN payrolls p ON p.id=d.payroll_id
+                WHERE NOT EXISTS(SELECT 1 FROM payroll_revision_links l WHERE l.replaces_id=p.id)'''):
+            issued.setdefault((r['employee_id'],r['work_date']),set()).add(Decimal(str(r['hours'])))
+        for w in self.conn.execute('SELECT employee_id,work_date,hours FROM work_hours WHERE work_date BETWEEN ? AND ?',(first,last)):
+            if Decimal(str(w['hours'])) not in issued.get((w['employee_id'],w['work_date']),set()):
+                e=employee(w['employee_id']);e['draft_hours']+=Decimal(str(w['hours']));e['draft_days']+=1
+        totals={key:sum((e[key] for e in employees.values()),Decimal(0)) for key in ('hours','gross','deductions','net','draft_hours')}
+        return {'rows':sorted(employees.values(),key=lambda e:(e['name'],e['employee_id'])), 'totals':totals,
+                'included_ids':included,'review_ids':review,'overlap_ids':overlaps,'month':f'{year:04d}-{month:02d}'}
 
     def get_payroll_full(self, payroll_id):
         p = self.conn.execute('SELECT * FROM payrolls WHERE id=?', (payroll_id,)).fetchone()

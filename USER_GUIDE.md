@@ -1,4 +1,4 @@
-# PayrollSystem 1.11.0 — usage
+# PayrollSystem 1.12.0 — usage
 
 ## Payroll screen
 
@@ -63,11 +63,28 @@ Add a name and positive hourly rate. Banking fields are optional. Each employee 
 2. Existing hours are loaded. If no saved hours exist in the period, weekdays start at 10 and weekends at zero. Review all values; these defaults are not attendance records.
 3. Double-click hours to edit (0–24, decimal hours allowed). Save hours (draft) stores the timesheet without issuing a statement. Enter explicitly zero hours to correct a day to zero.
 4. Choose Fixed 8 EUR/hour or Employee Custom Rate. Enter rental and utility deductions, using a decimal point.
-5. Preview creates a temporary PDF without changing the database. Save creates a unique PDF and records a payroll snapshot. Print also records the calculation after submitting the document to the system print handler; printer delivery is controlled by Windows.
+5. Preview creates a temporary PDF without changing the database. Save payroll + PDF creates a unique PDF and records a payroll snapshot. Print submits a PDF to Windows without saving hours or creating a statement; printer delivery is controlled by Windows.
 
 Switching employee loads that employee's period and resets deductions. Unsaved hours require confirmation before discarding. If you change the dates, Generate Period again before saving or creating a PDF.
 
-History > Payroll history shows completed saved calculations. Opening a historical calculation uses its saved name, banking details, daily rates and totals, even after the employee card changes. A revised calculation creates another history entry; identical repeated saves reuse the same snapshot.
+History > Payroll history shows completed saved calculations. Opening one uses its saved name, banking details, daily rates and totals, even after the employee card changes.
+
+When saving for an already issued exact period, choose Open selected, Create corrected version or Cancel.
+A correction links to all current statements for that exact employee/period, preserves the originals and marks
+them Superseded. History can show originals or Current only. Explicitly confirmed overlapping periods remain
+separate statements and are flagged in the monthly summary. Imports cannot silently issue a changed statement
+for an existing exact period: create the correction from Payroll.
+
+## Monthly summary
+
+History > Monthly summary groups saved current statements by the month of their period end.
+A period from October 20 to November 5 belongs entirely to November, including deductions.
+Past sums come from saved snapshots; changing employee rates does not recalculate them.
+Superseded originals are excluded. Unlinked legacy statements for an identical employee/period are marked
+Needs review and excluded until an explicit correction resolves them. Confirmed overlapping periods are
+included with an overlap warning. Draft hours, including hours changed since issuing a statement, are shown
+separately and never estimated as pay. Refresh after saving changes. Open employee history inspects issued
+statements; Open timesheet loads the employee and month in Payroll (archived employees remain viewable in history).
 
 Export > Export work hours exports the timesheet, not a record of payments. Applied rates for legacy hours and unissued drafts may be unknown. Completed statement totals and deductions are kept in Payroll history.
 
@@ -89,6 +106,16 @@ Full precision hours are used in the calculation and PDF. Files use unique names
 
 A verified database backup is made on startup before opening an existing database. Data > Create database backup makes a manual copy. Backups are inside the application data directory: also copy them and your PDF folder to independent storage.
 
-To restore: close the application; preserve a copy of the current database; replace `payroll.db` with the selected backup; reopen with the appropriate application version. The next launch verifies/migrates supported schemas. Restoring replaces newer records, so first confirm that the chosen backup has the required data.
+Data > Backups and restore shows the latest available verified copy and its location. Create backup makes
+a local copy; Save to another location writes a new verified file without overwriting an existing file.
+Open backup folder opens the latest available backup's location. PDF files are stored separately and are
+not included in a database backup; copy the PDF folder independently if required.
+
+Choose backup to restore validates and, if required, migrates an isolated copy before confirmation.
+Review the employee/hour/statement counts and confirm replacing the current database. Cancel leaves the
+working data and unsaved edits untouched. Confirming discards unsaved edits and closes other data windows.
+The app keeps a verified pre-restore backup, restores through a SQLite transaction and rebuilds its views.
+Restore is blocked during import. Close other PayrollSystem instances first. Corrupt, unrelated or newer
+unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.

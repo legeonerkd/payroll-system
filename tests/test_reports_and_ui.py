@@ -289,6 +289,48 @@ def test_fractional_pin_incompatible_total_keeps_entire_table(ui,monkeypatch):
     assert tab.days_data['2026-05-01']==8.5 and tab.days_data['2026-05-02']==10
 
 
+def test_existing_statement_open_or_cancel_never_writes(ui,monkeypatch):
+    tab,db,first,_=ui
+    select(tab,first);tab._generate_period()
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save')
+    pid=db.get_payrolls()[0]['id']
+    tab.utilities_var.set('10')
+    monkeypatch.setattr('ui.payroll_tab.choose_existing_payroll',lambda *a:None)
+    assert tab._call_pdf('save') is None
+    assert len(db.get_payrolls())==1 and tab.has_unsaved_changes()
+    monkeypatch.setattr('ui.payroll_tab.choose_existing_payroll',lambda *a:('open',pid))
+    monkeypatch.setattr('ui.payroll_tab.preview_payroll_pdf_from_history',lambda *a:'existing.pdf')
+    assert tab._call_pdf('save')=='existing.pdf'
+    assert not tab._last_pdf_saved and len(db.get_payrolls())==1 and tab.has_unsaved_changes()
+
+
+def test_ui_explicit_correction_records_new_current_version(ui,monkeypatch):
+    tab,db,first,_=ui
+    select(tab,first);tab._generate_period()
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',lambda **kw:'synthetic.pdf')
+    tab._call_pdf('save');first_pid=db.get_payrolls()[0]['id']
+    tab.utilities_var.set('10')
+    monkeypatch.setattr('ui.payroll_tab.choose_existing_payroll',lambda *a:('correct',[first_pid]))
+    tab._call_pdf('save')
+    assert len(db.get_payrolls())==2 and len(db.get_payrolls(current_only=True))==1
+    assert db.get_payrolls()[0]['corrects']==str(first_pid)
+    assert tab._last_pdf_saved and not tab.has_unsaved_changes()
+
+
+def test_history_race_removes_only_newly_generated_pdf(ui,monkeypatch,tmp_path):
+    tab,db,first,_=ui
+    select(tab,first);tab._generate_period()
+    pdf=tmp_path/'Payroll_unique_attempt.pdf'
+    def competing_save(**kwargs):
+        db.save_payroll(first,tab.days_data,tab.rate_mode.get(),'2026-05-01','2026-05-01')
+        pdf.write_bytes(b'test')
+        return str(pdf)
+    monkeypatch.setattr('ui.payroll_tab.generate_payroll_pdf',competing_save)
+    with pytest.raises(ValueError,match='history changed'):tab._call_pdf('save')
+    assert not pdf.exists() and len(db.get_payrolls())==1 and tab.has_unsaved_changes()
+
+
 def test_switch_loads_own_hours_and_recalculates(ui):
     tab,db,first,second=ui
     db.save_hours(first,'2026-05-01',8);db.save_hours(second,'2026-05-01',6)

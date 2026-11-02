@@ -1,5 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from calendar import monthrange
+from datetime import date
 
 from database.db import Database
 from core.version import APP_NAME, APP_VERSION
@@ -8,10 +10,12 @@ from ui.styles import setup_styles
 from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
 from ui.payroll_history import PayrollHistory
+from ui.monthly_summary import MonthlySummary
+from ui.backup_manager import BackupManager
 from ui.hours_export import HoursExportWindow
 from ui.excel_import import ExcelImportWindow
 from config import DATABASE_PATH, APP_DATA_DIR
-from core.backup import backup_db
+from core.backup import backup_db,prepare_restore,install_restore
 import logging
 import sys
 from pathlib import Path
@@ -39,12 +43,13 @@ class PayrollApp(tk.Tk):
         # ---------- DATABASE ----------
         db_path = str(DATABASE_PATH)
 
-        self.db = Database()
+        self.db = Database(DATABASE_PATH)
         self.protocol('WM_DELETE_WINDOW',self._close)
 
 
         # ---------- NOTEBOOK ----------
         notebook = ttk.Notebook(self)
+        self.notebook=notebook
         notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._on_employees_changed)
@@ -81,9 +86,11 @@ class PayrollApp(tk.Tk):
             label="Payroll history",
             command=lambda: PayrollHistory(self, self.db)
         )
+        history_menu.add_command(label='Monthly summary',command=lambda:MonthlySummary(self,self.db,self._open_month_timesheet))
         data_menu=tk.Menu(menubar,tearoff=0)
         menubar.add_cascade(label='Data',menu=data_menu)
         data_menu.add_command(label='Create database backup',command=self._backup)
+        data_menu.add_command(label='Backups and restore',command=lambda:BackupManager(self,DATABASE_PATH,self._restore_database))
 
         # ---------- STATUS BAR ----------
         self.status_bar = ttk.Frame(self, relief="sunken", borderwidth=1)
@@ -126,6 +133,52 @@ class PayrollApp(tk.Tk):
             messagebox.showinfo('Backup',f'Verified backup saved to:\n{path}\nCopy it to a separate drive for independent storage.')
         except Exception as exc:
             messagebox.showerror('Backup failed',str(exc))
+
+    def _open_month_timesheet(self,emp_id,month):
+        label=next((label for label,e in self.payroll_tab.employee_map.items() if e['id']==emp_id),None)
+        if label is None:
+            messagebox.showinfo('Timesheet','This employee is archived. Their saved statements remain available in history.');return False
+        tab=self.payroll_tab
+        if (tab.has_unsaved_changes() or tab._editor is not None) and not messagebox.askyesno('Unsaved changes','Discard unsaved changes and open this timesheet?'):return False
+        tab._cancel_hours_edit()
+        tab._dirty=False;tab._payroll_dirty=False;tab._distribution_dirty=False
+        year,number=map(int,month.split('-'))
+        tab.employee_cb.set(label)
+        tab.from_entry.set_date(date(year,number,1));tab.to_entry.set_date(date(year,number,monthrange(year,number)[1]))
+        tab._employee_changed();self.notebook.select(tab)
+        return True
+
+    def _reset_data_views(self):
+        for window in list(self.winfo_children()):
+            if isinstance(window,tk.Toplevel):window.destroy()
+        self.employees_tab.destroy();self.payroll_tab.destroy()
+        self.employees_tab=EmployeesTab(self.notebook,self.db,on_change=self._on_employees_changed)
+        self.notebook.add(self.employees_tab,text='Employees')
+        self.payroll_tab=PayrollTab(self.notebook,self.db)
+        self.notebook.add(self.payroll_tab,text='Payroll');self.notebook.select(self.payroll_tab)
+        self._update_status()
+
+    def _restore_database(self,path):
+        if any(isinstance(w,ExcelImportWindow) and w._running for w in self.winfo_children()):
+            messagebox.showinfo('Import running','Wait for the import to finish before restoring.');return False
+        try:
+            with prepare_restore(DATABASE_PATH,path) as (staged,info):
+                question=(f'Restore this verified backup?\n{info["employees"]} employees, {info["hours"]} hour entries, '
+                    f'{info["payrolls"]} statements.\n\nThis replaces the working database and discards unsaved edits. '
+                    'Other data windows will close. A verified copy of the current database will be kept first. '
+                    'Close other PayrollSystem instances before continuing.')
+                if not messagebox.askyesno('Confirm restore',question):return False
+                self.payroll_tab._cancel_hours_edit()
+                self.db.close()
+                try:
+                    protected=install_restore(DATABASE_PATH,staged)
+                finally:
+                    self.db=Database(DATABASE_PATH,create_backup=False)
+                    self._reset_data_views()
+            messagebox.showinfo('Restore complete',f'Database restored and reopened.\nPrevious data backup:\n{protected}')
+            return True
+        except Exception as exc:
+            messagebox.showerror('Restore failed',str(exc));return False
 
     def _close(self):
         if any(isinstance(w,ExcelImportWindow) and w._running for w in self.winfo_children()):
