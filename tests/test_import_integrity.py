@@ -36,6 +36,26 @@ def options(**updates):
     result.update(updates);return result
 
 
+@pytest.mark.parametrize('save_to_db',[True,False])
+@pytest.mark.parametrize('state,mode,expected',[
+    ('yes','fixed',50),('yes','custom',0),('no','fixed',0),
+    ('no','custom',50),('unknown','fixed',0),('unknown','custom',0)])
+def test_import_uses_saved_rental_and_preserves_employee_setting(tmp_path,monkeypatch,save_to_db,state,mode,expected):
+    db=Database(':memory:')
+    eid=db.add_employee('Synthetic',12,bank_account_state=state,rental_amount=50)
+    emp=employee(employee_id=eid)
+    captured=[]
+    def pdf(*args,**kwargs):
+        captured.append(args);path=tmp_path/'synthetic.pdf';path.write_bytes(b'test');return str(path)
+    monkeypatch.setattr('services.excel_import_service.generate_payroll_pdf',pdf)
+    process_import(db,[emp],options(save_to_db=save_to_db,create_pdf=True,rate_mode=mode))
+    assert float(captured[0][5])==expected
+    assert db.get_employee(eid)['rental_amount']==50
+    if save_to_db:assert db.get_payrolls()[0]['rental']==expected
+    else:assert not db.get_payrolls() and not db.get_all_hours()
+    db.close()
+
+
 def employee(name='Synthetic',rate=12,employee_id=None):
     e=EmployeeData(name,rate,employee_id=employee_id);e.add_hours('2026-05-01',8.25);return e
 

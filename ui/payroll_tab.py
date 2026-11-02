@@ -11,6 +11,7 @@ from pathlib import Path
 from services.payroll_service import calculate_fixed_payroll, calculate_custom_payroll
 from core.models import Employee
 from core.banking import account_caption,payment_details
+from core.rental import rental_for_rate,rental_hint
 from config import FIXED_RATE
 from core.validation import number
 from services.hours_distribution import distribute_hours, MAX_DISTRIBUTED_HOURS
@@ -35,6 +36,7 @@ class PayrollTab(ttk.Frame):
         self.rate_mode = tk.StringVar(value="fixed")
         self.utilities_var = tk.StringVar(value="0.00")
         self.rental_var = tk.StringVar(value="0.00")
+        self.rental_hint_var=tk.StringVar()
         self.distribution_hours_var = tk.StringVar(value="")
         self.distribution_min_var = tk.StringVar(value='0')
         self.distribution_max_var = tk.StringVar(value=str(MAX_DISTRIBUTED_HOURS))
@@ -64,7 +66,6 @@ class PayrollTab(ttk.Frame):
         # Bind auto-recalculation
         self.rate_mode.trace_add("write", self._parameters_changed)
         self.utilities_var.trace_add("write", self._parameters_changed)
-        self.rental_var.trace_add("write", self._parameters_changed)
         self.distribution_min_var.trace_add('write',self._distribution_settings_changed)
         self.distribution_max_var.trace_add('write',self._distribution_settings_changed)
 
@@ -104,6 +105,11 @@ class PayrollTab(ttk.Frame):
         if self.on_edit_employee:
             self.bank_edit_button=ttk.Button(account,text='Edit employee',command=self._edit_employee,style='Quiet.TButton')
             self.bank_edit_button.pack(side='right',padx=(10,0))
+        self.utilities_reminder=ttk.Label(header,text='Utilities reminder: check the entered amount; 0 is allowed. Rental is deducted. Printing continues.',
+                                          style='AccountUnknown.TLabel',wraplength=700)
+        self.utilities_reminder.grid(row=3,column=0,columnspan=4,sticky='ew',pady=(10,0))
+        self.utilities_reminder.bind('<Configure>',lambda event:self.utilities_reminder.configure(wraplength=max(100,event.width-20)))
+        self.utilities_reminder.grid_remove()
 
     def _update_bank_information(self):
         selected=self.employee_map.get(self.employee_cb.get())
@@ -239,9 +245,12 @@ class PayrollTab(ttk.Frame):
         card.grid(row=1,column=0,sticky='ew',pady=(10,0))
         card.columnconfigure((0,1),weight=1)
         ttk.Label(card,text='Deductions',style='PayrollHeading.TLabel').grid(row=0,column=0,columnspan=2,sticky='w',pady=(0,4))
-        for column,(label,variable) in enumerate([('Utilities (€)',self.utilities_var),('Rental (€)',self.rental_var)]):
+        for column,(label,variable) in enumerate([('Utilities (€)',self.utilities_var),('Rental · auto (€)',self.rental_var)]):
             ttk.Label(card,text=label,style='PayrollHint.TLabel').grid(row=1,column=column,sticky='w')
-            ttk.Entry(card,textvariable=variable,width=11).grid(row=2,column=column,sticky='ew',pady=(3,0),padx=(0,8) if column==0 else 0)
+            ttk.Entry(card,textvariable=variable,width=11,state='normal' if column==0 else 'readonly').grid(row=2,column=column,sticky='ew',pady=(3,0),padx=(0,8) if column==0 else 0)
+        hint=ttk.Label(card,textvariable=self.rental_hint_var,style='PayrollHint.TLabel',wraplength=205)
+        hint.grid(row=3,column=0,columnspan=2,sticky='ew',pady=(6,0))
+        hint.bind('<Configure>',lambda event:hint.configure(wraplength=max(100,event.width)))
 
     def _build_summary(self,parent):
         card=ttk.Frame(parent,style='PayrollCard.TFrame')
@@ -275,6 +284,7 @@ class PayrollTab(ttk.Frame):
 
     def _load_employees(self):
         """Загрузка списка сотрудников в combobox"""
+        self.utilities_reminder.grid_remove()
         old = self.employee_map.get(self.employee_cb.get())
         current_id = old['id'] if old is not None else None
         
@@ -294,7 +304,8 @@ class PayrollTab(ttk.Frame):
             self.employee_cb.set(selected)
             updated=self.employee_map[selected]
             keys=('name',)+ (('rate',) if self.rate_mode.get()=='custom' else ())
-            if old is not None and self.days_data and (any(old[key]!=updated[key] for key in keys) or payment_details(old)!=payment_details(updated)):
+            if old is not None and self.days_data and (any(old[key]!=updated[key] for key in keys) or payment_details(old)!=payment_details(updated)
+                or rental_for_rate(old,self.rate_mode.get())!=rental_for_rate(updated,self.rate_mode.get())):
                 self._payroll_dirty=True
         elif names:
             self.employee_cb.current(0)
@@ -334,6 +345,7 @@ class PayrollTab(ttk.Frame):
         self.days_data.clear()
         self.tree.delete(*self.tree.get_children())
         self._context = None
+        self.utilities_reminder.grid_remove()
         self.utilities_var.set('0.00')
         self.rental_var.set('0.00')
         if selected is not None:
@@ -628,6 +640,7 @@ class PayrollTab(ttk.Frame):
         return self._dirty or self._payroll_dirty or self._distribution_dirty
 
     def _parameters_changed(self, *args):
+        self.utilities_reminder.grid_remove()
         if self.days_data:
             self._payroll_dirty = True
         self._auto_recalculate()
@@ -655,6 +668,7 @@ class PayrollTab(ttk.Frame):
 
     def _auto_recalculate(self):
         """Автоматический пересчёт Net при изменении параметров"""
+        self._sync_rental()
         if not self.days_data:
             self.gross_var.set('0.00 €')
             self.net_var.set('0.00 €')
@@ -708,6 +722,16 @@ class PayrollTab(ttk.Frame):
         # Update deductions preview
         self.deductions_preview.config(text=f"{total_deductions:.2f} €")
 
+    def _sync_rental(self):
+        employee=self.employee_map.get(self.employee_cb.get())
+        self.rental_var.set(f'{rental_for_rate(employee,self.rate_mode.get()):.2f}')
+        self.rental_hint_var.set(rental_hint(employee,self.rate_mode.get()))
+
+    def _show_utilities_reminder(self):
+        # An inline notice has no modal dialog, grab, answer or required value.
+        self.utilities_reminder.grid()
+        self.update_idletasks()
+
     # ======================================================
     # PDF ACTIONS
     # ======================================================
@@ -755,7 +779,7 @@ class PayrollTab(ttk.Frame):
             raise ValueError('Generate the selected period before creating a PDF')
         rows = [(day, '', hours) for day,hours in sorted(self.days_data.items())]
         utilities = number(self.utilities_var.get() or 0, 'Utilities deduction')
-        rental = number(self.rental_var.get() or 0, 'Rental deduction')
+        rental = rental_for_rate(emp,self.rate_mode.get())
         settings=self._distribution_settings() if action=='save' else None
         details=payment_details(emp)
         replaces_ids=()
@@ -772,12 +796,13 @@ class PayrollTab(ttk.Frame):
                     return preview_payroll_pdf_from_history(payroll,days)
                 replaces_ids=choice[1]
             if plan['overlaps']:
-                details='\n'.join(f'#{p["id"]}: {p["period_from"]} — {p["period_to"]}' for p in plan['overlaps'])
+                overlap_details='\n'.join(f'#{p["id"]}: {p["period_from"]} — {p["period_to"]}' for p in plan['overlaps'])
                 if not messagebox.askyesno('Overlapping periods',
-                    'This period overlaps current statements:\n'+details+'\n\nSave anyway? Both statements will be included in monthly totals and marked for overlap review.'):
+                    'This period overlaps current statements:\n'+overlap_details+'\n\nSave anyway? Both statements will be included in monthly totals and marked for overlap review.'):
                     return None
                 allow_overlap=True
 
+        if action=='print' and rental>0:self._show_utilities_reminder()
         pdf_path = generate_payroll_pdf(
             employee_name=emp["name"],
             employee_rate=emp["rate"],

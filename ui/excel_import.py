@@ -210,9 +210,7 @@ class ExcelImportWindow(tk.Toplevel):
         # Rental
         rent_frame = ttk.Frame(deduct_card)
         rent_frame.pack(fill="x", pady=5)
-        ttk.Label(rent_frame, text="Rental (€):").pack(side="left", padx=(0, 10))
-        self.rental_var = tk.StringVar(value="0.00")
-        ttk.Entry(rent_frame, textvariable=self.rental_var, width=15).pack(side="left")
+        ttk.Label(rent_frame,text='Rental: from Employee Details and bank-account status',wraplength=240).pack(anchor='w')
         
         # Output Options
         output_card = ttk.Frame(settings_inner, style="Card.TFrame", padding=15)
@@ -244,7 +242,7 @@ class ExcelImportWindow(tk.Toplevel):
             text="Update existing employees (rate, bank info)",
             variable=self.update_employees_var
         ).pack(anchor="w", pady=3)
-        for variable in (self.rate_mode,self.utilities_var,self.rental_var):
+        for variable in (self.rate_mode,self.utilities_var):
             variable.trace_add('write',lambda *args:self._display_preview())
     
     def _build_action_panel(self):
@@ -353,7 +351,7 @@ class ExcelImportWindow(tk.Toplevel):
             rate = emp.rate
             try:
                 _,summary=calculate_payroll(Employee(0,emp.name,emp.rate),emp.hours_by_date,self.rate_mode.get(),
-                    utilities=self.utilities_var.get() or 0,housing=self.rental_var.get() or 0)
+                    utilities=self.utilities_var.get() or 0,housing=0)
                 gross=summary.gross_amount
                 rate=FIXED_RATE if self.rate_mode.get()=='fixed' else emp.rate
             except ValueError:
@@ -438,7 +436,6 @@ class ExcelImportWindow(tk.Toplevel):
         try:
             options = dict(rate_mode=self.rate_mode.get(),
                 utilities=str(number(self.utilities_var.get() or 0,'Utilities deduction')),
-                rental=str(number(self.rental_var.get() or 0,'Rental deduction')),
                 save_to_db=self.save_to_db_var.get(),create_pdf=self.create_pdf_var.get(),
                 update_existing=self.update_employees_var.get())
             if not options['save_to_db'] and not options['create_pdf']:

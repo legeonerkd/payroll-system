@@ -1,4 +1,4 @@
-# PayrollSystem 1.13.2 — usage
+# PayrollSystem 1.14.0 — usage
 
 ## Payroll screen
 
@@ -93,7 +93,7 @@ Add a name and positive hourly rate. Banking fields are optional. Each employee 
 1. Select an employee and the From/To dates; click Generate Period.
 2. Existing hours are loaded. If no saved hours exist in the period, weekdays start at 10 and weekends at zero. Review all values; these defaults are not attendance records.
 3. Double-click hours to edit (0–24, decimal hours allowed). Save hours (draft) stores the timesheet without issuing a statement. Enter explicitly zero hours to correct a day to zero.
-4. Choose Fixed 8 EUR/hour or Employee Custom Rate. Enter rental and utility deductions, using a decimal point.
+4. Choose Fixed 8 EUR/hour or Employee Custom Rate. Rental uses the saved Employee Details setting and bank-account rule; enter utilities manually using a decimal point (zero is valid).
 5. Preview creates a temporary PDF without changing the database. Save payroll + PDF creates a unique PDF and records a payroll snapshot. Print submits a PDF to Windows without saving hours or creating a statement; printer delivery is controlled by Windows.
 
 Switching employee loads that employee's period and resets deductions. Unsaved hours require confirmation before discarding. If you change the dates, Generate Period again before saving or creating a PDF.
@@ -150,3 +150,25 @@ Restore is blocked during import. Close other PayrollSystem instances first. Cor
 unsupported backups are rejected. The selected backup file remains unchanged.
 
 Normal uninstall preserves the database and backups. Do not delete `%LOCALAPPDATA%\PayrollSystem` unless you intentionally want to erase user data.
+
+## Saved rental and utilities reminder (1.14.0)
+
+In Employees, set Rental / statement (€) once; 0 disables the saved rental deduction.
+The amount applies to every new statement of the appropriate type, without monthly proration:
+Bank account Yes → Fixed rate; Bank account No → Employee rate. Not specified does not
+apply rental and shows a reminder to declare the status. Payroll displays the effective
+rental as read-only. Switch rate modes to see the matching deduction; changing the mode
+does not copy the deduction into both parts. Utilities stay manual and may be zero.
+
+Before Print with a positive rental deduction, an inline Utilities reminder appears.
+It requires no answer and printing continues with the currently entered utilities amount,
+including zero. Review or edit utilities before pressing Print if a different amount is needed.
+The reminder is informational; it does not enter a charge automatically. Preview/save do not
+trigger this print reminder. Existing saved statements retain their original deductions.
+
+Excel import uses the same saved employee rental amount and declared bank status; it no longer
+uses a single manual rental value for everyone. New employees default to a saved rental of zero.
+For an existing employee, imported name/rate/bank updates preserve the saved rental amount.
+
+Schema 7 adds the saved rental field with a default of zero. A verified pre-migration backup
+is created first. Old statement deductions are not guessed as future recurring settings.
