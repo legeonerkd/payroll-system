@@ -35,10 +35,16 @@ def distribute_hours(start, end, total, *, minimum=0, maximum=24, locked=None, e
     if not working:
         if remaining==0: return result
         raise ValueError('No unlocked Monday-Saturday working days remain for the requested hours')
-    if not len(working)*minimum<=remaining<=len(working)*maximum:
+    if remaining>len(working)*24:
         fixed=sum(locked.values(),Decimal(0))
-        raise ValueError(f'This period and daily range allow a total from {fixed+len(working)*minimum:g} '
-                         f'to {fixed+len(working)*maximum:g} hours, including locked hours')
+        raise ValueError(f'This period can hold at most {fixed+len(working)*24:g} hours '
+                         'with 24 hours per available day. Extend the period or unlock more dates.')
+    # The requested total takes priority over the preferred daily range. Relax
+    # only the side that cannot accommodate it; locks and exclusions remain hard.
+    if remaining<len(working)*minimum:
+        minimum=0
+    if remaining>len(working)*maximum:
+        maximum=24
     base, remainder = divmod(int(remaining), len(working))
     allocations = [base + (i < remainder) for i in range(len(working))]
     random.shuffle(allocations)

@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from tkcalendar import DateEntry
@@ -138,7 +138,7 @@ class PayrollTab(ttk.Frame):
         allocation.grid(row=1,column=0,sticky='ew')
         ttk.Label(allocation,text='Total hours (incl. locked)',style='PayrollHint.TLabel').grid(row=0,column=0,sticky='w')
         ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,12))
-        for column,(text,variable) in enumerate([('Min / day',self.distribution_min_var),('Max / day',self.distribution_max_var)],1):
+        for column,(text,variable) in enumerate([('Preferred min',self.distribution_min_var),('Preferred max',self.distribution_max_var)],1):
             ttk.Label(allocation,text=text,style='PayrollHint.TLabel').grid(row=0,column=column,sticky='w',padx=(0,10))
             ttk.Spinbox(allocation,from_=0,to=24,textvariable=variable,width=4).grid(row=1,column=column,pady=(4,0),padx=(0,12))
         distribute=ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton')
@@ -151,7 +151,9 @@ class PayrollTab(ttk.Frame):
             else:
                 distribute.grid_configure(row=1,column=3,columnspan=1,sticky='',pady=(4,0))
         allocation.bind('<Configure>',fit_distribution)
-        ttk.Label(table_frame,text='Locked dates keep their hours. Excluded dates stay at 0.',style='PayrollHint.TLabel').grid(row=2,column=0,sticky='w',pady=(7,2))
+        range_hint=ttk.Label(table_frame,text='Daily range adjusts to match the total. Locked dates keep their hours; excluded dates stay at 0.',style='PayrollHint.TLabel',wraplength=600)
+        range_hint.grid(row=2,column=0,sticky='ew',pady=(7,2))
+        range_hint.bind('<Configure>',lambda event:range_hint.configure(wraplength=max(100,event.width)))
         ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
         container=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         container.grid(row=4,column=0,sticky='nsew')
@@ -394,6 +396,9 @@ class PayrollTab(ttk.Frame):
             messagebox.showerror('Distribute hours', str(exc))
             return
         question='Redistribute unlocked Monday-Saturday hours? Locked dates stay unchanged. Excluded dates and unlocked Sundays stay at zero. Other daily edits will be replaced. Save to update the database.'
+        allocated=[hours for day,hours in values.items() if day not in locked and day not in excluded and date.fromisoformat(day).weekday()<6]
+        if allocated and (min(allocated)<lo or max(allocated)>hi):
+            question=f'The preferred daily range will be adjusted to fit the requested total (allocated: {min(allocated):g}–{max(allocated):g} hours/day). '+question
         if self._context!=context and self.has_unsaved_changes():
             question='The selected period differs from the displayed period. Unsaved daily edits and day rules will be discarded. Saved locks for the selected period will be used. '+question
         if (self._dirty or stored or self.days_data) and not messagebox.askyesno('Replace hours?',question):

@@ -53,18 +53,15 @@ def test_invalid_period_rejected(start,end):
         distribute_hours(start,end,'8')
 
 
-@pytest.mark.parametrize('total',range(37,58))
+@pytest.mark.parametrize('total',range(5,102))
 def test_bounded_distribution_preserves_locked_and_excluded(total):
-    if total>53:
-        with pytest.raises(ValueError,match='from 37 to 53'):
-            distribute_hours(date(2026,5,4),date(2026,5,10),total,minimum=8,maximum=12,
-                locked={'2026-05-04':5},excluded={'2026-05-05'})
-        return
     result=distribute_hours(date(2026,5,4),date(2026,5,10),total,minimum=8,maximum=12,
         locked={'2026-05-04':5},excluded={'2026-05-05'})
     assert sum(result.values())==total
     assert result['2026-05-04']==5 and result['2026-05-05']==0 and result['2026-05-10']==0
-    assert all(isinstance(result[d],int) and 8<=result[d]<=12 for d in ('2026-05-06','2026-05-07','2026-05-08','2026-05-09'))
+    flexible=[result[d] for d in ('2026-05-06','2026-05-07','2026-05-08','2026-05-09')]
+    assert all(isinstance(v,int) and 0<=v<=24 for v in flexible)
+    if 37<=total<=53:assert all(8<=v<=12 for v in flexible)
 
 
 def test_fractional_locked_sunday_and_matching_fractional_total():
@@ -88,8 +85,31 @@ def test_all_dates_fixed_and_infeasible_cases():
     {'minimum':12,'maximum':8},{'minimum':8.5},{'maximum':25},
     {'locked':{'2026-05-01':25}}, {'locked':{'2026-04-30':8}},
     {'excluded':{'2026-06-01'}}, {'locked':{'2026-05-01':8},'excluded':{'2026-05-01'}},
-    {'minimum':12,'maximum':12},
 ])
 def test_invalid_constraints_rejected(options):
     with pytest.raises(ValueError):
         distribute_hours(date(2026,5,1),date(2026,5,2),16,**options)
+
+
+@pytest.mark.parametrize('total',[0,1,27,157,158,159,215,216,324,325,647,648])
+def test_october_total_takes_priority_over_preferred_eight_to_twelve(total):
+    result=distribute_hours(date(2026,10,1),date(2026,10,31),total,minimum=8,maximum=12)
+    working=[hours for day,hours in result.items() if date.fromisoformat(day).weekday()<6]
+    assert len(working)==27 and sum(result.values())==total
+    assert all(isinstance(v,int) and 0<=v<=24 for v in working)
+    assert all(v==0 for day,v in result.items() if date.fromisoformat(day).weekday()==6)
+    if total==158:assert len(set(working))>1
+    if 216<=total<=324:assert all(8<=v<=12 for v in working)
+
+
+@pytest.mark.parametrize('minimum,maximum',[(0,0),(8,8),(12,12),(24,24)])
+@pytest.mark.parametrize('total',[0,1,16,47,48])
+def test_fixed_preference_does_not_block_feasible_total(minimum,maximum,total):
+    result=distribute_hours(date(2026,5,1),date(2026,5,2),total,minimum=minimum,maximum=maximum)
+    assert sum(result.values())==total
+    assert all(isinstance(v,int) and 0<=v<=24 for v in result.values())
+
+
+def test_physical_capacity_remains_explicit():
+    with pytest.raises(ValueError,match='at most 648'):
+        distribute_hours(date(2026,10,1),date(2026,10,31),649,minimum=8,maximum=12)
