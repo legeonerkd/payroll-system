@@ -1,4 +1,22 @@
-# PayrollSystem 1.9.2 — usage
+# PayrollSystem 1.9.5 — usage
+
+## Distribute total hours
+
+Select an employee and the From/To dates, enter a whole number of Total hours,
+then click Distribute Mon-Sat. Generate Period is not required first.
+Whole hours are allocated across Monday through Saturday, including both period boundaries,
+with modest random variation (up to two hours below the rounded-down average and two above).
+The total stays exact. Sundays are zero. Repeating distribution can give a different schedule.
+Equal hours on some days are allowed; variation is created whenever mathematically possible.
+All-zero, fully occupied 24-hour days and a single working day cannot vary.
+No day may exceed 24 hours. A period consisting only of Sunday cannot be distributed.
+
+Double-click any Hours cell to adjust it manually, then press Enter.
+Manual changes update the total and salary immediately; they do not redistribute other days.
+Manual adjustments may still include fractional hours.
+Save hours (draft) stores the edited hours; Save PDF records the final payroll.
+Distributing alone does not change saved data. Repeating distribution replaces daily edits
+after confirmation. Generate Period loads saved hours or the existing default schedule.
 
 ## Employees
 

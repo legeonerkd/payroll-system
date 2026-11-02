@@ -36,15 +36,19 @@ def test_shared_rounding_unicode_and_unique_paths(tmp_path,monkeypatch):
     assert 'Иван Тестовый' in text
 
 
-def test_month_and_long_period_paginate(tmp_path,monkeypatch):
-    for days in (31,60):
-        path=pdf(tmp_path,monkeypatch,days)
-        pages=PdfReader(path).pages
-        text='\n'.join(p.extract_text() for p in pages)
-        assert len(pages)>1
-        assert text.count('Employee signature:')==1
-        assert text.count('Date:')==2
-        assert text.count('Hourly rate')==len(pages) or text.count('Hourly rate')==len(pages)-1
+@pytest.mark.parametrize('days',[1,28,31,60])
+def test_complete_statement_fits_one_page(tmp_path,monkeypatch,days):
+    path=pdf(tmp_path,monkeypatch,days,name='Иван Тестовый ' * 8)
+    pages=PdfReader(path).pages
+    text='\n'.join(p.extract_text() for p in pages)
+    assert len(pages)==1
+    assert text.count('Employee signature:')==1
+    assert text.count('Date:')==2
+    assert text.count('Hourly rate')==1
+    assert f'Total hours: {days*.5:g} h' in text
+    for i in range(days):
+        assert (date(2026,5,1)+timedelta(days=i)).strftime('%d.%m.%Y') in text
+    assert 'Manager signature:' in text
 
 
 def test_unsafe_name_stays_inside_output(tmp_path,monkeypatch):
@@ -92,6 +96,49 @@ def ui(tk_root):
 def select(tab,eid):
     label=next(label for label,e in tab.employee_map.items() if e['id']==eid)
     tab.employee_cb.set(label)
+
+
+def test_distribute_then_manually_edit_and_save_draft(ui,monkeypatch):
+    tab,db,first,_ = ui
+    select(tab,first)
+    tab.to_entry.set_date(date(2026,5,4))
+    tab.distribution_hours_var.set('10')
+    tab._distribute_hours()
+    assert sum(tab.days_data.values()) == 10
+    assert all(isinstance(h,int) for h in tab.days_data.values())
+    assert tab.days_data['2026-05-03'] == 0
+    assert tab.total_hours_var.get() == '10'
+    assert not db.get_all_hours()
+    before_edit = tab.days_data['2026-05-02']
+    tab._editor = tk.Spinbox(tab.tree)
+    tab._editor.delete(0,'end');tab._editor.insert(0,'4.25')
+    tab._save_hours('2026-05-02')
+    assert tab.days_data['2026-05-02'] == 4.25
+    assert tab.total_hours_var.get() == f'{10-before_edit+4.25:g}'
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showinfo',lambda *a:None)
+    tab._save_draft()
+    saved = {r['work_date']:r['hours'] for r in db.load_hours(first,'2026-05-01','2026-05-04')}
+    assert saved == tab.days_data
+    tab._generate_period()
+    assert tab.days_data == saved
+
+
+def test_cancel_or_invalid_distribution_preserves_hours(ui,monkeypatch):
+    tab,db,first,_ = ui
+    select(tab,first)
+    db.save_hours(first,'2026-05-01',7)
+    tab._generate_period()
+    original = dict(tab.days_data)
+    monkeypatch.setattr('ui.payroll_tab.messagebox.askyesno',lambda *a:False)
+    tab.distribution_hours_var.set('8')
+    tab._distribute_hours()
+    assert tab.days_data == original
+    errors = []
+    monkeypatch.setattr('ui.payroll_tab.messagebox.showerror',lambda *a:errors.append(a))
+    tab.distribution_hours_var.set('999')
+    tab._distribute_hours()
+    assert errors and tab.days_data == original
+    assert db.load_hours(first,'2026-05-01','2026-05-01')[0]['hours'] == 7
 
 
 def test_switch_loads_own_hours_and_recalculates(ui):
