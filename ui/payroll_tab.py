@@ -10,6 +10,7 @@ from ui.payroll_conflicts import choose_existing_payroll
 from pathlib import Path
 from services.payroll_service import calculate_fixed_payroll, calculate_custom_payroll
 from core.models import Employee
+from core.banking import account_caption,payment_details
 from config import FIXED_RATE
 from core.validation import number
 from services.hours_distribution import distribute_hours
@@ -19,9 +20,14 @@ HOUR_STEP = 0.5
 
 
 class PayrollTab(ttk.Frame):
-    def __init__(self, parent, db):
+    def __init__(self, parent, db,on_edit_employee=None):
         super().__init__(parent)
+        self.configure(style='App.TFrame')
         self.db = db
+        self.on_edit_employee=on_edit_employee
+        self.bank_account_var=tk.StringVar(value='Bank account: —')
+        self.bank_detail_var=tk.StringVar(value='Select an employee')
+        self.bank_edit_button=None
 
         self.employee_map = {}
         self.days_data = {}
@@ -89,9 +95,29 @@ class PayrollTab(ttk.Frame):
             entry.bind('<<DateEntrySelected>>', lambda e:self._update_save_status(), add='+')
             entry.bind('<FocusOut>', lambda e:self._update_save_status(), add='+')
         ttk.Button(header, text='Load period', command=self._generate_period, style='PayrollSecondary.TButton').grid(row=1,column=3,pady=(4,0))
+        account=ttk.Frame(header,style='PayrollCard.TFrame')
+        account.grid(row=2,column=0,columnspan=4,sticky='ew',pady=(12,0))
+        self.bank_status_label=ttk.Label(account,textvariable=self.bank_account_var,style='AccountUnknown.TLabel')
+        self.bank_status_label.pack(side='left')
+        self.bank_detail_label=ttk.Label(account,textvariable=self.bank_detail_var,style='PayrollHint.TLabel',wraplength=460)
+        self.bank_detail_label.pack(side='left',padx=(12,0))
+        if self.on_edit_employee:
+            self.bank_edit_button=ttk.Button(account,text='Edit employee',command=self._edit_employee,style='Quiet.TButton')
+            self.bank_edit_button.pack(side='right',padx=(10,0))
+
+    def _update_bank_information(self):
+        selected=self.employee_map.get(self.employee_cb.get())
+        status,detail,state=account_caption(selected)
+        self.bank_account_var.set(status);self.bank_detail_var.set(detail)
+        self.bank_status_label.configure(style={'yes':'AccountYes.TLabel','no':'AccountNo.TLabel','unknown':'AccountUnknown.TLabel'}[state])
+        if self.bank_edit_button is not None:self.bank_edit_button.configure(state='normal' if selected is not None else 'disabled')
+
+    def _edit_employee(self):
+        selected=self.employee_map.get(self.employee_cb.get())
+        if selected is not None and self.on_edit_employee:self.on_edit_employee(selected['id'])
 
     def _build_content(self):
-        content = ttk.Frame(self)
+        content = ttk.Frame(self,style='App.TFrame')
         content.grid(row=1,column=0,sticky='nsew',padx=10,pady=(5,10))
         content.columnconfigure(0,weight=1)
         content.rowconfigure(0,weight=1)
@@ -111,14 +137,20 @@ class PayrollTab(ttk.Frame):
         allocation=ttk.Frame(table_frame,style='PayrollCard.TFrame')
         allocation.grid(row=1,column=0,sticky='ew')
         ttk.Label(allocation,text='Total hours (incl. locked)',style='PayrollHint.TLabel').grid(row=0,column=0,sticky='w')
-        ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,10))
-        ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton').grid(row=1,column=1,pady=(4,0))
-        limits=ttk.Frame(allocation,style='PayrollCard.TFrame')
-        limits.grid(row=2,column=0,columnspan=2,sticky='w',pady=(8,0))
-        ttk.Label(limits,text='Daily range',style='PayrollHint.TLabel').pack(side='left',padx=(0,8))
-        for text,variable in [('Min',self.distribution_min_var),('Max',self.distribution_max_var)]:
-            ttk.Label(limits,text=text,style='PayrollHint.TLabel').pack(side='left',padx=(0,4))
-            ttk.Spinbox(limits,from_=0,to=24,textvariable=variable,width=4).pack(side='left',padx=(0,10))
+        ttk.Entry(allocation,textvariable=self.distribution_hours_var,width=13).grid(row=1,column=0,sticky='w',pady=(4,0),padx=(0,12))
+        for column,(text,variable) in enumerate([('Min / day',self.distribution_min_var),('Max / day',self.distribution_max_var)],1):
+            ttk.Label(allocation,text=text,style='PayrollHint.TLabel').grid(row=0,column=column,sticky='w',padx=(0,10))
+            ttk.Spinbox(allocation,from_=0,to=24,textvariable=variable,width=4).grid(row=1,column=column,pady=(4,0),padx=(0,12))
+        distribute=ttk.Button(allocation,text='Distribute Mon-Sat',command=self._distribute_hours,style='PayrollSecondary.TButton')
+        distribute.grid(row=1,column=3,pady=(4,0))
+        def fit_distribution(event):
+            # Keep controls compact on desktop and wrap the action at narrow widths.
+            required=sum(allocation.grid_bbox(column,1)[2] for column in range(3))+distribute.winfo_reqwidth()
+            if event.width<required:
+                distribute.grid_configure(row=2,column=0,columnspan=3,sticky='w',pady=(8,0))
+            else:
+                distribute.grid_configure(row=1,column=3,columnspan=1,sticky='',pady=(4,0))
+        allocation.bind('<Configure>',fit_distribution)
         ttk.Label(table_frame,text='Locked dates keep their hours. Excluded dates stay at 0.',style='PayrollHint.TLabel').grid(row=2,column=0,sticky='w',pady=(7,2))
         ttk.Label(table_frame,text='Double-click hours to edit. Enter to confirm, Esc to cancel.',style='PayrollHint.TLabel').grid(row=3,column=0,sticky='w',pady=(0,10))
         container=ttk.Frame(table_frame,style='PayrollCard.TFrame')
@@ -151,7 +183,7 @@ class PayrollTab(ttk.Frame):
         self.sidebar_canvas.grid(row=0,column=0,sticky='nsew')
         scrollbar=ttk.Scrollbar(shell,orient='vertical',command=self.sidebar_canvas.yview)
         self.sidebar_canvas.configure(yscrollcommand=scrollbar.set)
-        right=ttk.Frame(self.sidebar_canvas,style='PayrollCard.TFrame',padding=10)
+        right=ttk.Frame(self.sidebar_canvas,style='PayrollCard.TFrame',padding=14)
         window=self.sidebar_canvas.create_window(0,0,anchor='nw',window=right)
         self.sidebar_content=right
         def resize(event=None):
@@ -219,8 +251,10 @@ class PayrollTab(ttk.Frame):
             value=ttk.Label(card,textvariable=variable,style='PayrollBody.TLabel')
             value.grid(row=row,column=1,sticky='e')
             if label=='Deductions': self.deductions_preview=value
-        ttk.Label(card,text='Net pay',style='PayrollHeading.TLabel').grid(row=4,column=0,sticky='w',pady=(8,0))
-        ttk.Label(card,textvariable=self.net_var,style='PayrollNet.TLabel').grid(row=4,column=1,sticky='e',pady=(8,0))
+        payout=ttk.Frame(card,style='PayrollTotal.TFrame',padding=(12,10))
+        payout.grid(row=4,column=0,columnspan=2,sticky='ew',pady=(12,0))
+        ttk.Label(payout,text='NET PAY',style='PayrollTotalCaption.TLabel').pack(anchor='w')
+        ttk.Label(payout,textvariable=self.net_var,style='PayrollTotalValue.TLabel').pack(anchor='w',pady=(3,0))
 
     def _build_pdf_actions(self,parent):
         card=ttk.Frame(parent,style='PayrollCard.TFrame')
@@ -257,8 +291,8 @@ class PayrollTab(ttk.Frame):
         if selected:
             self.employee_cb.set(selected)
             updated=self.employee_map[selected]
-            keys=('name','bank','iban','bic')+ (('rate',) if self.rate_mode.get()=='custom' else ())
-            if old is not None and self.days_data and any(old[key]!=updated[key] for key in keys):
+            keys=('name',)+ (('rate',) if self.rate_mode.get()=='custom' else ())
+            if old is not None and self.days_data and (any(old[key]!=updated[key] for key in keys) or payment_details(old)!=payment_details(updated)):
                 self._payroll_dirty=True
         elif names:
             self.employee_cb.current(0)
@@ -275,6 +309,7 @@ class PayrollTab(ttk.Frame):
             self._update_total_hours()
         self._auto_recalculate()
         self._update_save_status()
+        self._update_bank_information()
         if self._context is None and not self._distribution_dirty:
             current=self.employee_map.get(self.employee_cb.get())
             if current is not None: self._load_distribution_settings(current['id'])
@@ -303,6 +338,7 @@ class PayrollTab(ttk.Frame):
             self._load_distribution_settings(selected['id'])
             self._generate_period()
         self._update_save_status()
+        self._update_bank_information()
     
     def refresh_employees(self):
         """Публичный метод для обновления списка сотрудников извне"""
@@ -376,9 +412,9 @@ class PayrollTab(ttk.Frame):
         self._excluded_days={d for d,r in rules.items() if r['excluded']}
 
         # Configure zebra tags
-        self.tree.tag_configure("odd", background="#f9f9f9")
+        self.tree.tag_configure("odd", background="#F7F9FC")
         self.tree.tag_configure("even", background="#ffffff")
-        self.tree.tag_configure("weekend", background="#fee2e2", foreground="#991b1b")
+        self.tree.tag_configure("weekend", background="#F5F1EA", foreground="#7B6851")
 
         d = start
         row_index = 0
@@ -716,6 +752,7 @@ class PayrollTab(ttk.Frame):
         utilities = number(self.utilities_var.get() or 0, 'Utilities deduction')
         rental = number(self.rental_var.get() or 0, 'Rental deduction')
         settings=self._distribution_settings() if action=='save' else None
+        details=payment_details(emp)
         replaces_ids=()
         expected_ids=None
         allow_overlap=False
@@ -745,9 +782,9 @@ class PayrollTab(ttk.Frame):
             rental=str(rental),
             period_from=self.from_entry.get(),
             period_to=self.to_entry.get(),
-            bank_name=emp["bank"] if "bank" in emp.keys() else None,
-            iban=emp["iban"] if "iban" in emp.keys() else None,
-            bic=emp["bic"] if "bic" in emp.keys() else None,
+            bank_name=details['bank'],
+            iban=details['iban'],
+            bic=details['bic'],
             action=action,
             employee_id=emp['id'],
         )

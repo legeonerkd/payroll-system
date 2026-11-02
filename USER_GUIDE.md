@@ -1,6 +1,19 @@
-# PayrollSystem 1.12.1 — usage
+# PayrollSystem 1.13.0 — usage
 
 ## Payroll screen
+
+Bank account is visible below the employee picker: Yes, No or Not specified. A saved bank
+name and only the last four IBAN characters are shown. Edit employee opens that person's card.
+Set Bank account in Employees and save the card to update Payroll immediately.
+Missing bank fields do not automatically mean No. During upgrade, an existing non-empty IBAN
+is marked Yes; other records remain Not specified until reviewed.
+
+Declaring No does not erase retained bank fields from the employee card. Those details are
+omitted from newly generated statements and PDFs while No is selected. Already issued
+statements retain their original details. A Yes status records the operator's information;
+the application does not verify bank accounts with a bank.
+
+The interface uses a light, flat theme with a separate Net pay card and scrollable forms.
 
 Payroll opens first. Select an employee and dates, then Load period to load saved hours
 or the existing default schedule. Distribute Mon-Sat can create a period directly.

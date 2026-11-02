@@ -8,6 +8,7 @@ import pandas as pd
 from core.validation import employee_values, number
 from services.payroll_service import calculate_payroll
 from core.models import Employee
+from core.banking import payment_details
 from services.report_service import generate_payroll_pdf
 
 
@@ -184,8 +185,14 @@ def process_import(db, employees, options, progress=None):
                 if options['create_pdf']:
                     start,end=emp.get_date_range()
                     display_name = existing['name'] if existing is not None and not options.get('update_existing',True) else emp.name
+                    if options['save_to_db']:
+                        effective=payment_details(db.get_employee(eid))
+                    elif existing is not None:
+                        effective=payment_details(dict(details,bank_account_state=existing['bank_account_state']))
+                    else:
+                        effective=details
                     path=generate_payroll_pdf(display_name,emp.rate,[(d,'',h) for d,h in sorted(emp.hours_by_date.items())],
-                        options['rate_mode'],utilities,rental,start,end,details['bank'],details['iban'],details['bic'],
+                        options['rate_mode'],utilities,rental,start,end,effective['bank'],effective['iban'],effective['bic'],
                         action='save',employee_id=eid)
                     files.append(path)
                 if options['save_to_db']:

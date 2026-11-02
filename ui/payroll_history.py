@@ -19,7 +19,7 @@ class PayrollHistory(tk.Toplevel):
         ttk.Checkbutton(toolbar,text='Current only',variable=self.current_only,command=self._load).pack(side='right')
         ttk.Button(toolbar,text='Refresh',command=self._load).pack(side='right',padx=8)
 
-        container=ttk.Frame(self);container.pack(fill='both',expand=True,padx=10)
+        container=ttk.Frame(self)
         container.rowconfigure(0,weight=1);container.columnconfigure(0,weight=1)
         self.tree = ttk.Treeview(
             container,
@@ -46,6 +46,8 @@ class PayrollHistory(tk.Toplevel):
         actions=ttk.Frame(self,padding=10);actions.pack(fill='x')
         ttk.Button(actions,text='Open selected PDF',command=self._open_pdf).pack(side='left')
         ttk.Label(actions,text='Create corrections from the Payroll screen.').pack(side='right')
+        actions.pack_configure(side='bottom')
+        container.pack(fill='both',expand=True,padx=10)
 
         self.tree.bind("<Double-1>", self._open_pdf)
 

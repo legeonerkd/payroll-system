@@ -6,7 +6,7 @@ from datetime import date
 from database.db import Database
 from core.version import APP_NAME, APP_VERSION
 
-from ui.styles import setup_styles
+from ui.styles import setup_styles,COLORS
 from ui.employees_tab import EmployeesTab
 from ui.payroll_tab import PayrollTab
 from ui.payroll_history import PayrollHistory
@@ -27,9 +27,9 @@ class PayrollApp(tk.Tk):
 
         # ---------- WINDOW ----------
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("1000x650")
+        self.geometry("1120x780")
         self.minsize(900, 600)
-        self.configure(cursor="arrow")
+        self.configure(cursor="arrow",background=COLORS['bg'])
         
         # ---------- ICON ----------
         try:
@@ -41,8 +41,6 @@ class PayrollApp(tk.Tk):
         setup_styles(self)
 
         # ---------- DATABASE ----------
-        db_path = str(DATABASE_PATH)
-
         self.db = Database(DATABASE_PATH)
         self.protocol('WM_DELETE_WINDOW',self._close)
 
@@ -55,7 +53,7 @@ class PayrollApp(tk.Tk):
         self.employees_tab = EmployeesTab(notebook, self.db, on_change=self._on_employees_changed,archive_warning=self._archive_warning)
         notebook.add(self.employees_tab, text="Employees")
 
-        self.payroll_tab = PayrollTab(notebook, self.db)
+        self.payroll_tab = PayrollTab(notebook, self.db,on_edit_employee=self._edit_employee_from_payroll)
         notebook.add(self.payroll_tab, text="Payroll")
         notebook.select(self.payroll_tab)
 
@@ -93,12 +91,12 @@ class PayrollApp(tk.Tk):
         data_menu.add_command(label='Backups and restore',command=lambda:BackupManager(self,DATABASE_PATH,self._restore_database))
 
         # ---------- STATUS BAR ----------
-        self.status_bar = ttk.Frame(self, relief="sunken", borderwidth=1)
+        self.status_bar = ttk.Frame(self,style='StatusBar.TFrame')
         self.status_bar.pack(side="bottom", fill="x")
         
         self.status_label = ttk.Label(
             self.status_bar, 
-            text=f"Ready | Database: {db_path}",
+            text='Ready',
             font=("Segoe UI", 9),
             foreground="#6C757D"
         )
@@ -119,7 +117,7 @@ class PayrollApp(tk.Tk):
         """Обновление статус-бара"""
         employees = self.db.get_employees()
         count = len(employees)
-        self.employee_count_label.config(text=f"👥 Employees: {count}")
+        self.employee_count_label.config(text=f"Employees: {count}")
     
     def _on_employees_changed(self):
         """Обработчик изменений в списке сотрудников"""
@@ -132,6 +130,18 @@ class PayrollApp(tk.Tk):
         if tab._context and tab._context[0]==emp_id and (tab.has_unsaved_changes() or tab._editor is not None):
             return 'Unsaved Payroll hours and settings for this employee will be discarded.'
         return ''
+
+    def _edit_employee_from_payroll(self,emp_id):
+        editor=self.employees_tab
+        if not editor._confirm_form_discard():return
+        editor._new_employee_mode()
+        editor._search_reset=True
+        try:editor.search_var.set('');editor._last_search=''
+        finally:editor._search_reset=False
+        editor._render_table()
+        if editor.tree.exists(str(emp_id)):
+            editor.tree.selection_set(str(emp_id));editor._on_select(None);editor.tree.see(str(emp_id))
+            self.notebook.select(editor)
 
     def _backup(self):
         try:
@@ -160,7 +170,7 @@ class PayrollApp(tk.Tk):
         self.employees_tab.destroy();self.payroll_tab.destroy()
         self.employees_tab=EmployeesTab(self.notebook,self.db,on_change=self._on_employees_changed,archive_warning=self._archive_warning)
         self.notebook.add(self.employees_tab,text='Employees')
-        self.payroll_tab=PayrollTab(self.notebook,self.db)
+        self.payroll_tab=PayrollTab(self.notebook,self.db,on_edit_employee=self._edit_employee_from_payroll)
         self.notebook.add(self.payroll_tab,text='Payroll');self.notebook.select(self.payroll_tab)
         self._update_status()
 

@@ -16,7 +16,7 @@ class MonthlySummary(tk.Toplevel):
         ttk.Entry(header,textvariable=self.month,width=10).pack(side='left',padx=8)
         ttk.Button(header,text='Refresh',command=self._load).pack(side='left')
         ttk.Label(header,text='Saved current statements · by period end').pack(side='right')
-        frame=ttk.Frame(self);frame.pack(fill='both',expand=True,padx=12)
+        frame=ttk.Frame(self)
         frame.columnconfigure(0,weight=1);frame.rowconfigure(0,weight=1)
         columns=('employee','hours','gross','deductions','net','draft','status')
         self.tree=ttk.Treeview(frame,columns=columns,show='headings')
@@ -35,6 +35,8 @@ class MonthlySummary(tk.Toplevel):
         actions=ttk.Frame(footer);actions.pack(fill='x')
         ttk.Button(actions,text='Open employee history',command=self._history).pack(side='left')
         if on_open_employee:ttk.Button(actions,text='Open timesheet',command=self._timesheet).pack(side='left',padx=8)
+        footer.pack_configure(side='bottom')
+        frame.pack(fill='both',expand=True,padx=12)
         self.tree.bind('<Double-1>',lambda e:self._history())
         self._load()
 

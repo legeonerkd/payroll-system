@@ -9,18 +9,20 @@ class Employee:
     id: int
     name: str
     rate: float
-    has_bank_account: bool = False
+    has_bank_account: bool | None = None
     bank_name: str | None = None
     iban: str | None = None
     bic: str | None = None
 
     @classmethod
     def from_row(cls, row):
+        from core.banking import account_state
+        state=account_state(row)
         return cls(
             id=row["id"],
             name=row["name"],
             rate=row["rate"],
-            has_bank_account=bool(row["bank"]),
+            has_bank_account=True if state=='yes' else False if state=='no' else None,
             bank_name=row["bank"],
             iban=row["iban"],
             bic=row["bic"],
