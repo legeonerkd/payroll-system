@@ -114,6 +114,8 @@ class PayrollTab(ttk.Frame):
     def _update_bank_information(self):
         selected=self.employee_map.get(self.employee_cb.get())
         status,detail,state=account_caption(selected)
+        if state=='unknown' and selected is not None and selected['rental_amount']>0:
+            detail='Set Bank account to Yes or No in Employee Details to apply rental.'
         self.bank_account_var.set(status);self.bank_detail_var.set(detail)
         self.bank_status_label.configure(style={'yes':'AccountYes.TLabel','no':'AccountNo.TLabel','unknown':'AccountUnknown.TLabel'}[state])
         if self.bank_edit_button is not None:self.bank_edit_button.configure(state='normal' if selected is not None else 'disabled')
@@ -245,12 +247,8 @@ class PayrollTab(ttk.Frame):
         card.grid(row=1,column=0,sticky='ew',pady=(10,0))
         card.columnconfigure((0,1),weight=1)
         ttk.Label(card,text='Deductions',style='PayrollHeading.TLabel').grid(row=0,column=0,columnspan=2,sticky='w',pady=(0,4))
-        for column,(label,variable) in enumerate([('Utilities (€)',self.utilities_var),('Rental · auto (€)',self.rental_var)]):
-            ttk.Label(card,text=label,style='PayrollHint.TLabel').grid(row=1,column=column,sticky='w')
-            ttk.Entry(card,textvariable=variable,width=11,state='normal' if column==0 else 'readonly').grid(row=2,column=column,sticky='ew',pady=(3,0),padx=(0,8) if column==0 else 0)
-        hint=ttk.Label(card,textvariable=self.rental_hint_var,style='PayrollHint.TLabel',wraplength=205)
-        hint.grid(row=3,column=0,columnspan=2,sticky='ew',pady=(6,0))
-        hint.bind('<Configure>',lambda event:hint.configure(wraplength=max(100,event.width)))
+        ttk.Label(card,text='Utilities (€)',style='PayrollHint.TLabel').grid(row=1,column=0,columnspan=2,sticky='w')
+        ttk.Entry(card,textvariable=self.utilities_var,width=11).grid(row=2,column=0,columnspan=2,sticky='ew',pady=(3,0))
 
     def _build_summary(self,parent):
         card=ttk.Frame(parent,style='PayrollCard.TFrame')
