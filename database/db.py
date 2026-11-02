@@ -15,10 +15,14 @@ from core.rental import rental_amount as validate_rental_amount
 from core.validation import CENT, employee_values, hours_map, number, iso_date
 from services.payroll_service import calculate_payroll
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class PayrollConflictError(ValueError):
+    pass
+
+
+class PeriodClosedError(ValueError):
     pass
 
 
@@ -164,6 +168,13 @@ class Database:
                 fixed_id INTEGER NOT NULL REFERENCES payrolls(id),
                 custom_id INTEGER NOT NULL REFERENCES payrolls(id),
                 PRIMARY KEY(fixed_id,custom_id),CHECK(fixed_id<>custom_id))''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS employee_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER NOT NULL REFERENCES employees(id),
+                changed_at TEXT NOT NULL,field TEXT NOT NULL,old_value TEXT,new_value TEXT NOT NULL)''')
+            self.conn.execute('''CREATE TABLE IF NOT EXISTS closed_periods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER NOT NULL REFERENCES employees(id),
+                period_from TEXT NOT NULL,period_to TEXT NOT NULL,closed_at TEXT NOT NULL,reopened_at TEXT,
+                CHECK(period_from<=period_to))''')
             self.conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
 
     def get_employees(self, include_archived=False):
@@ -185,7 +196,9 @@ class Database:
         with self.transaction():
             cur = self.conn.execute('INSERT INTO employees(name,rate,bank,iban,bic,bank_account_state,rental_amount) VALUES(?,?,?,?,?,?,?)',
                                     (name, rate, bank, iban, bic,state,rental))
-            return cur.lastrowid
+            eid=cur.lastrowid
+            self._record_employee_changes(eid,None,self.get_employee(eid))
+            return eid
 
     def update_employee(self, emp_id, name, rate, bank=None, iban=None, bic=None,*,expected=None,bank_account_state=None,rental_amount=None):
         name, rate = employee_values(name, rate)
@@ -200,6 +213,80 @@ class Database:
             if bank_account_state is None and state=='unknown' and not str(current['iban'] or '').strip() and str(iban or '').strip():state='yes'
             self.conn.execute('UPDATE employees SET name=?,rate=?,bank=?,iban=?,bic=?,bank_account_state=?,rental_amount=? WHERE id=?',
                               (name, rate, bank, iban, bic,state,rental,emp_id))
+            self._record_employee_changes(emp_id,current,self.get_employee(emp_id))
+
+    def _record_employee_changes(self,emp_id,before,after):
+        # Deliberately do not duplicate IBAN/BIC or bank details in the journal.
+        changed_at=datetime.now().isoformat(timespec='seconds')
+        for field in ('rate','rental_amount','bank_account_state'):
+            if before is None or before[field]!=after[field]:
+                self.conn.execute('INSERT INTO employee_changes(employee_id,changed_at,field,old_value,new_value) VALUES(?,?,?,?,?)',
+                    (emp_id,changed_at,field,None if before is None else str(before[field]),str(after[field])))
+
+    def get_employee_changes(self,emp_id=None):
+        sql='SELECT c.*,e.name FROM employee_changes c JOIN employees e ON e.id=c.employee_id'
+        args=() if emp_id is None else (emp_id,)
+        if emp_id is not None:sql+=' WHERE c.employee_id=?'
+        return self.conn.execute(sql+' ORDER BY c.id DESC',args).fetchall()
+
+    def get_closed_periods(self,emp_id=None,active_only=True):
+        clauses=[];args=[]
+        if emp_id is not None:clauses.append('p.employee_id=?');args.append(emp_id)
+        if active_only:clauses.append('p.reopened_at IS NULL')
+        sql='SELECT p.*,e.name FROM closed_periods p JOIN employees e ON e.id=p.employee_id'
+        if clauses:sql+=' WHERE '+' AND '.join(clauses)
+        return self.conn.execute(sql+' ORDER BY p.id DESC',args).fetchall()
+
+    def period_is_closed(self,emp_id,start,end):
+        iso_date(start);iso_date(end)
+        return self.conn.execute('SELECT id FROM closed_periods WHERE employee_id=? AND reopened_at IS NULL AND period_from<=? AND period_to>=?',
+                                 (emp_id,end,start)).fetchone() is not None
+
+    def ensure_period_open(self,emp_id,start,end):
+        if self.period_is_closed(emp_id,start,end):
+            raise PeriodClosedError('This period includes closed dates. Reopen it explicitly before changing hours or issuing corrected statements. Reprint saved statements from History.')
+
+    def _ensure_dates_open(self,emp_id,dates):
+        if dates:
+            periods=self.get_closed_periods(emp_id)
+            if any(p['period_from']<=day<=p['period_to'] for p in periods for day in dates):
+                raise PeriodClosedError('These hours include closed dates. Reopen the period explicitly before editing.')
+
+    def close_period(self,emp_id,start,end):
+        iso_date(start);iso_date(end)
+        if start>end:raise ValueError('From must not be after To')
+        with self.transaction():
+            self.get_employee(emp_id)
+            for p in self.get_closed_periods(emp_id):
+                if p['period_from']==start and p['period_to']==end:return p['id']
+            self.ensure_period_open(emp_id,start,end)
+            current=[p for p in self.get_payrolls(current_only=True) if p['employee_id']==emp_id]
+            exact=[p for p in current if p['period_from']==start and p['period_to']==end]
+            if not exact:raise ValueError('Save the statements for this exact period before closing it')
+            if any(p['period_from']<=end and p['period_to']>=start and p not in exact for p in current):
+                raise ValueError('Resolve overlapping statements before closing the period')
+            if len(exact)>2 or len({p['rate_mode'] for p in exact})!=len(exact):
+                raise ValueError('Resolve duplicate statements before closing the period')
+            if len(exact)==2:
+                ids={p['rate_mode']:p['id'] for p in exact}
+                if not self.conn.execute('SELECT 1 FROM payroll_pairs WHERE fixed_id=? AND custom_id=?',(ids.get('fixed'),ids.get('custom'))).fetchone():
+                    raise ValueError('Save both PDFs as a linked pair before closing this period')
+                if all(p['rental']>0 or p['utilities']>0 for p in exact):
+                    raise ValueError('Resolve deductions in both parts before closing the period')
+            stored={r['work_date']:r['hours'] for r in self.load_hours(emp_id,start,end)}
+            if any({d['work_date']:d['hours'] for d in self.get_payroll_full(p['id'])[1]}!=stored for p in exact):
+                raise ValueError('Saved statements do not match the current daily hours. Save corrected statements before closing.')
+            cur=self.conn.execute('INSERT INTO closed_periods(employee_id,period_from,period_to,closed_at) VALUES(?,?,?,?)',
+                                  (emp_id,start,end,datetime.now().isoformat(timespec='seconds')))
+            return cur.lastrowid
+
+    def reopen_period(self,period_id):
+        with self.transaction():
+            row=self.conn.execute('SELECT * FROM closed_periods WHERE id=?',(period_id,)).fetchone()
+            if row is None:raise ValueError('Closed period not found')
+            if row['reopened_at'] is not None:return False
+            self.conn.execute('UPDATE closed_periods SET reopened_at=? WHERE id=?',(datetime.now().isoformat(timespec='seconds'),period_id))
+            return True
 
     def delete_employee(self, emp_id):
         # Keep financial and timesheet history intact.
@@ -236,6 +323,7 @@ class Database:
             e = self.get_employee(emp_id)
             if e['archived']:
                 raise ValueError('Employee is archived')
+            self._ensure_dates_open(emp_id,values)
             excluded={r['work_date'] for r in self.conn.execute('SELECT work_date FROM hour_day_rules WHERE employee_id=? AND excluded=1',(emp_id,))}
             if any(d in excluded and h!=0 for d,h in values.items()):
                 raise ValueError('Include excluded dates before saving non-zero hours for them')
@@ -279,6 +367,7 @@ class Database:
                 (emp_id,int(lo),int(hi)))
 
     def payroll_save_plan(self,emp_id,values,rate_mode,start,end,utilities=0,rental=0):
+        self.ensure_period_open(emp_id,start,end)
         self._prepare_payroll(emp_id,values,rate_mode,start,end,utilities,rental)
         current=self.get_payrolls(current_only=True)
         exact=[p for p in current if p['employee_id']==emp_id and p['rate_mode']==rate_mode and p['period_from']==start and p['period_to']==end]
@@ -306,6 +395,7 @@ class Database:
     def save_payroll(self, emp_id, values, rate_mode, start, end, utilities=0, rental=0, pdf_path=None, *, day_rules=None,
                      distribution_settings=(0,24),replaces_ids=(),allow_overlap=False,expected_current_ids=None):
         with self.transaction():
+            self.ensure_period_open(emp_id,start,end)
             values,rows,snapshot,content_hash=self._prepare_payroll(emp_id,values,rate_mode,start,end,utilities,rental)
             plan=self.payroll_save_plan(emp_id,values,rate_mode,start,end,utilities,rental)
             current_ids={p['id'] for p in plan['exact']}
@@ -346,6 +436,7 @@ class Database:
     def register_payroll_pair(self,fixed_id,custom_id):
         with self.transaction():
             fixed,fixed_days=self.get_payroll_full(fixed_id)
+            self.ensure_period_open(fixed['employee_id'],fixed['period_from'],fixed['period_to'])
             custom,custom_days=self.get_payroll_full(custom_id)
             if fixed['rate_mode']!='fixed' or custom['rate_mode']!='custom' or any(fixed[key]!=custom[key] for key in ('employee_id','period_from','period_to')):
                 raise ValueError('A pair must contain fixed and employee rates for the same employee and period')

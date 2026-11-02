@@ -178,7 +178,7 @@ def test_schema_seven_upgrade_preserves_all_original_rows_and_backup(tmp_path):
     before={table:[tuple(row) for row in db.conn.execute('SELECT * FROM '+table)] for table in tables}
     db.conn.executescript('DROP TABLE payroll_pairs; PRAGMA user_version=7;');db.close()
     db=Database(path)
-    assert db.conn.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION==8
+    assert db.conn.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
     assert before=={table:[tuple(row) for row in db.conn.execute('SELECT * FROM '+table)] for table in tables}
     backup=sqlite3.connect(db.last_backup)
     assert backup.execute('PRAGMA user_version').fetchone()[0]==7

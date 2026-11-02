@@ -1,2 +1,2 @@
 APP_NAME = "Payroll System"
-APP_VERSION = "1.15.2"
+APP_VERSION = "1.16.0"
